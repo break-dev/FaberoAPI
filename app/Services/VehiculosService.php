@@ -10,9 +10,9 @@ class VehiculosService
     /**
      * Obtener listado global de vehículos (datos simplificados)
      */
-    public static function get_vehiculos(?string $seriePlaca = null, ?string $numeroPlaca = null, ?int $id = null, ?bool $esCarreta = null): array
+    public static function get_vehiculos(?string $placa = null, ?int $id = null, ?bool $esCarreta = null): array
     {
-        $data = VehiculosData::get_vehiculos($seriePlaca, $numeroPlaca, $id, $esCarreta);
+        $data = VehiculosData::get_vehiculos($placa, $id, $esCarreta);
 
         return ApiResponse::success($data);
     }
@@ -21,12 +21,11 @@ class VehiculosService
      * Crear un nuevo vehículo de forma simplificada
      */
     public static function crear_vehiculo_simplificado(
-        ?string $seriePlaca,
-        string $numeroPlaca,
+        string $placa,
         ?int $idEmpresaTransporte = null,
         ?int $idTipoVehiculo = null
     ): array {
-        $existenteId = VehiculosData::buscar_vehiculo_existente($seriePlaca, $numeroPlaca);
+        $existenteId = VehiculosData::buscar_vehiculo_existente($placa);
         if ($existenteId !== null) {
             $vehiculos = VehiculosData::get_vehiculos(id: $existenteId);
             $vehiculo = $vehiculos[0] ?? null;
@@ -37,7 +36,7 @@ class VehiculosService
             return ApiResponse::success($vehiculo, 'El vehículo ya se encontraba registrado.');
         }
 
-        $id = VehiculosData::crear_vehiculo_simplificado($seriePlaca, $numeroPlaca, $idEmpresaTransporte, $idTipoVehiculo);
+        $id = VehiculosData::crear_vehiculo_simplificado($placa, $idEmpresaTransporte, $idTipoVehiculo);
         $vehiculos = VehiculosData::get_vehiculos(id: $id);
         $vehiculo = $vehiculos[0] ?? null;
         if ($vehiculo) {

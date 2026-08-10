@@ -227,12 +227,11 @@ class AuxController extends Controller
      */
     public function get_vehiculos(Request $request): JsonResponse
     {
-        $serie = $request->input('serie') ?? $request->input('serie_placa');
-        $numero_placa = $request->input('numero_placa');
+        $placa = $request->input('placa') ?? $request->input('numero_placa') ?? $request->input('serie') ?? $request->input('serie_placa');
         $esCarretaParam = $request->input('es_carreta');
         $esCarreta = $esCarretaParam === null ? null : filter_var($esCarretaParam, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
 
-        return response()->json(VehiculosService::get_vehiculos($serie, $numero_placa, null, $esCarreta));
+        return response()->json(VehiculosService::get_vehiculos($placa, null, $esCarreta));
     }
 
     /**
@@ -241,21 +240,19 @@ class AuxController extends Controller
     public function crear_vehiculo(Request $request): JsonResponse
     {
         $request->validate([
-            'serie_placa' => 'nullable|string|max:10',
-            'numero_placa' => 'nullable|string|max:20',
             'placa' => 'nullable|string|max:20',
+            'numero_placa' => 'nullable|string|max:20',
             'id_empresa_transporte' => 'nullable|integer',
             'id_tipo_vehiculo' => 'nullable|integer',
         ]);
 
-        $numeroPlaca = $request->input('placa') ?? $request->input('numero_placa') ?? '';
+        $placa = $request->input('placa') ?? $request->input('numero_placa') ?? '';
 
         $empId = $request->input('id_empresa_transporte') ? (int) $request->input('id_empresa_transporte') : null;
         $tipoId = $request->input('id_tipo_vehiculo') ? (int) $request->input('id_tipo_vehiculo') : null;
 
         $result = VehiculosService::crear_vehiculo_simplificado(
-            $request->input('serie_placa'),
-            $numeroPlaca,
+            $placa,
             $empId,
             $tipoId
         );
@@ -292,6 +289,19 @@ class AuxController extends Controller
         $esRecepcionUnidad = $filtro === null ? null : filter_var($filtro, FILTER_VALIDATE_BOOLEAN);
 
         return response()->json(MotivoIngresoService::get_motivos_ingreso($esRecepcionUnidad));
+    }
+
+    /**
+     * Crear un nuevo motivo de ingreso.
+     */
+    public function crear_motivo_ingreso(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'nombre' => 'required|string|max:100',
+            'es_recepcion_unidad' => 'nullable|boolean',
+        ]);
+
+        return response()->json(MotivoIngresoService::crear_motivo_ingreso($validated));
     }
 
     /**

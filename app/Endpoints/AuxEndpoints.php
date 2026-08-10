@@ -47,6 +47,7 @@ Route::middleware('auth.jwt.custom')->group(function () {
 
         // motivos de ingreso
         Route::get('/motivos-ingreso', [AuxController::class, 'get_motivos_ingreso']);
+        Route::post('/motivos-ingreso', [AuxController::class, 'crear_motivo_ingreso']);
 
         // visitantes
         Route::get('/visitantes/buscar', [AuxController::class, 'buscar_visitante_por_dni']);

@@ -12,7 +12,7 @@ class BlendingData
      *
      * @return array<int, object>
      */
-    public static function get_disponibles(?int $idProveedor = null): array
+    public static function get_disponibles(?int $idProveedor = null, ?int $idEmpresa = null): array
     {
         // 1. Lotes valorizados y pagados con peso_actual > 0
         $sqlLotes = '
@@ -22,6 +22,8 @@ class BlendingData
                 "lote" AS tipo_origen,
                 lm.correlativo AS codigo,
                 lm.correlativo AS correlativo_origen,
+                lm.id_empresa,
+                emp.razon_social AS empresa_nombre,
                 p.id AS id_proveedor,
                 p.razon_social AS proveedor_nombre,
                 COALESCE(lg.peso_actual, lg.peso_neto) AS tmh_disponible,
@@ -30,6 +32,7 @@ class BlendingData
                 COALESCE(lm.ley_plata, 0) AS ley_plata
             FROM lote_guia lg
             INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+            LEFT JOIN empresa emp ON emp.id = lm.id_empresa
             INNER JOIN proveedor p ON p.id = lm.id_proveedor_minero
             INNER JOIN valorizacion_compramineral_detalle vcd ON vcd.id_lote_guia = lg.id
             INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
@@ -44,6 +47,11 @@ class BlendingData
             $paramsLotes['id_proveedor'] = $idProveedor;
         }
 
+        if ($idEmpresa !== null) {
+            $sqlLotes .= ' AND lm.id_empresa = :id_empresa';
+            $paramsLotes['id_empresa'] = $idEmpresa;
+        }
+
         $lotes = DB::select($sqlLotes, $paramsLotes);
 
         // 2. Blendings anteriores con peso_actual > 0
@@ -54,6 +62,8 @@ class BlendingData
                 "blending" AS tipo_origen,
                 b.correlativo AS codigo,
                 b.correlativo AS correlativo_origen,
+                NULL AS id_empresa,
+                NULL AS empresa_nombre,
                 NULL AS id_proveedor,
                 "Blending" AS proveedor_nombre,
                 b.peso_actual AS tmh_disponible,
@@ -64,13 +74,14 @@ class BlendingData
             WHERE b.peso_actual > 0
         ';
 
-        $blendings = ($idProveedor === null) ? DB::select($sqlBlendings) : [];
+        $blendings = ($idProveedor === null && $idEmpresa === null) ? DB::select($sqlBlendings) : [];
 
         $items = array_merge($lotes, $blendings);
 
         foreach ($items as $r) {
             $r->id_lote_guia = $r->id_lote_guia !== null ? (int) $r->id_lote_guia : null;
             $r->id_reblending = $r->id_reblending !== null ? (int) $r->id_reblending : null;
+            $r->id_empresa = isset($r->id_empresa) && $r->id_empresa !== null ? (int) $r->id_empresa : null;
             $r->id_proveedor = $r->id_proveedor !== null ? (int) $r->id_proveedor : null;
             $r->tmh_disponible = (float) $r->tmh_disponible;
             $r->ley_humedad = (float) $r->ley_humedad;

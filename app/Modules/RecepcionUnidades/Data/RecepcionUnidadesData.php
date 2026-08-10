@@ -4,6 +4,8 @@ namespace App\Modules\RecepcionUnidades\Data;
 
 use App\Models\LoteMineral;
 use App\Models\RecepcionUnidad;
+use App\Shared\Enums\_Generic\EstadoPesaje;
+use App\Shared\Enums\_Generic\EstadoVisita;
 use App\Shared\Enums\_Generic\Periodo;
 use App\Shared\Helpers\CorrelativoHelper;
 use Illuminate\Support\Facades\DB;
@@ -204,9 +206,9 @@ class RecepcionUnidadesData
             'fecha_hora_ingreso' => now()->toDateTimeString(),
             'evidencias' => $data['evidencias'] ?? [],
             'observacion' => $data['observacion'] ?? null,
-            'estado' => 'En Planta',
+            'estado' => EstadoVisita::EnPlanta->value,
             'id_sucursal' => $data['id_sucursal'],
-            'estado_pesaje' => 'Sin Pesar',
+            'estado_pesaje' => EstadoPesaje::SinPesar->value,
             'serie_guia_remitente' => $data['serie_guia_remitente'] ?? null,
             'numero_guia_remitente' => $data['numero_guia_remitente'] ?? null,
             'serie_guia_transportista' => $data['serie_guia_transportista'] ?? null,
@@ -489,7 +491,8 @@ class RecepcionUnidadesData
         $update = array_merge([
             'id_empleado_recepcion' => $idEmpleadoRecepcion,
             'fecha_hora_ingreso' => now()->toDateTimeString(),
-            'estado' => 'En Planta',
+            'estado' => EstadoVisita::EnPlanta->value,
+            'estado_pesaje' => EstadoPesaje::SinPesar->value,
         ], $overrides);
 
         return DB::table('recepcion_unidad')

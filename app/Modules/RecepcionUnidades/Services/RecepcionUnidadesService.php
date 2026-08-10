@@ -50,14 +50,22 @@ class RecepcionUnidadesService
 
         $id = RecepcionUnidadesData::crear_recepcion($data);
 
-        // Si se envió información de visita y visitantes
-        if ($visitaData && ! empty($visitaData['id_motivo_ingreso'])) {
+        // Solo crear recepción de visita si hay visitantes válidos o vehículos acompañantes
+        $visitantesValidos = array_filter($visitaData['visitantes'] ?? [], function ($v) {
+            $nombre = trim($v['nombre'] ?? '');
+            $dni = trim($v['dni'] ?? '');
+            return $nombre !== '' || $dni !== '' || ! empty($v['id_visitante']);
+        });
+        $hasVisitantes = ! empty($visitantesValidos);
+        $hasVehiculos = ! empty($visitaData['vehiculos']);
+
+        if ($visitaData && ! empty($visitaData['id_motivo_ingreso']) && ($hasVisitantes || $hasVehiculos)) {
             \App\Modules\RecepcionVisitas\Services\RecepcionVisitasService::crear_recepcion_para_programacion(
                 $data['id_empleado_registro'],
                 $id,
                 (int) $visitaData['id_motivo_ingreso'],
                 $visitaData['observacion'] ?? null,
-                $visitaData['visitantes'] ?? [],
+                array_values($visitantesValidos),
                 $visitaData['archivosPorIndice'] ?? [],
                 $visitaData['vehiculos'] ?? [],
                 $visitaData['archivosVehiculos'] ?? []
@@ -110,7 +118,12 @@ class RecepcionUnidadesService
             $visita->fecha_hora_salida = $nowStr;
             $visita->observacion_salida = $observacionSalida;
             if (! empty($uploadedUrls)) {
-                $visita->evidencias_salida = json_encode($uploadedUrls);
+                $rawVisitaEv = $visita->evidencias_salida;
+                $existingVisitaEv = is_array($rawVisitaEv)
+                    ? $rawVisitaEv
+                    : (is_string($rawVisitaEv) ? (json_decode($rawVisitaEv, true) ?? []) : []);
+                $mergedVisitaEv = array_values(array_unique(array_merge($existingVisitaEv, $uploadedUrls)));
+                $visita->evidencias_salida = json_encode($mergedVisitaEv);
             }
             $visita->estado = EstadoVisita::FueraDePlanta->value;
             $visita->save();
@@ -120,9 +133,6 @@ class RecepcionUnidadesService
                 'observacion_salida' => $observacionSalida,
                 'estado' => EstadoVisita::FueraDePlanta->value,
             ];
-            if (! empty($uploadedUrls)) {
-                $updateDetalleData['evidencias_salida'] = json_encode($uploadedUrls);
-            }
 
             \App\Models\RecepcionVisitaDetalle::where('id_recepcion_visita', $visita->id)->update($updateDetalleData);
         }

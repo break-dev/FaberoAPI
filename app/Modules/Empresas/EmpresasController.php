@@ -29,7 +29,7 @@ class EmpresasController extends Controller
             'ruc' => 'required|string|size:11',
             'razon_social' => 'required|string|max:128',
             'nombre_comercial' => 'required|string|max:128',
-            'abreviatura' => 'nullable|string|max:24',
+            'prefijo' => 'nullable|string|max:24',
             'path_logo' => 'nullable|image|mimes:jpg,png,jpeg|max:2048',
         ], [
             'ruc.required' => 'El RUC es obligatorio',
@@ -46,7 +46,7 @@ class EmpresasController extends Controller
             ruc: $request->input('ruc'),
             razon_social: $request->input('razon_social'),
             nombre_comercial: $request->input('nombre_comercial'),
-            abreviatura: $request->input('abreviatura'),
+            prefijo: $request->input('prefijo'),
             logo: $request->file('path_logo')
         );
 

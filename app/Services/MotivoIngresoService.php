@@ -13,4 +13,11 @@ class MotivoIngresoService
 
         return ApiResponse::success($data, 'Motivos de ingreso obtenidos correctamente');
     }
+
+    public static function crear_motivo_ingreso(array $data): array
+    {
+        $nuevo = MotivoIngresoData::crear_motivo_ingreso($data);
+
+        return ApiResponse::success($nuevo, 'Motivo de ingreso registrado correctamente');
+    }
 }

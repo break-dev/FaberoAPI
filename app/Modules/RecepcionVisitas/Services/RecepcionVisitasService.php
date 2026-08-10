@@ -29,8 +29,6 @@ class RecepcionVisitasService
      */
     public static function crear_recepcion(array $data, array $visitantes, array $archivos, array $vehiculos = [], array $archivosVehiculos = [], array $evidencias = []): array
     {
-        $lastId = null;
-
         try {
             DB::beginTransaction();
 
@@ -43,102 +41,21 @@ class RecepcionVisitasService
                 }
             }
 
-            // Agrupar visitantes por vehículo acompañante (temp_id) vs peatonales
-            $peatonales = [];
-            $vehiculosVisitantesMap = [];
-
-            foreach ($visitantes as $origIndex => $v) {
-                $v['_orig_index'] = $origIndex;
-                $vehId = $v['id_visita_vehiculo'] ?? null;
-                if (! empty($vehId)) {
-                    $key = (string) $vehId;
-                    $vehiculosVisitantesMap[$key][] = $v;
-                } else {
-                    $peatonales[] = $v;
-                }
+            // 1. Crear UN SOLO registro de cabecera en recepcion_visita
+            $dataCabecera = $data;
+            if ($evidenciasJson) {
+                $dataCabecera['evidencias_ingreso'] = $evidenciasJson;
             }
 
-            // 1. Crear cabecera y detalles para Visitantes Peatonales / Individuales
-            if (! empty($peatonales) || empty($vehiculos)) {
-                $dataPeatonal = $data;
-                $dataPeatonal['con_vehiculo'] = false;
-                $dataPeatonal['serie_placa'] = null;
-                $dataPeatonal['numero_placa'] = null;
-                if ($evidenciasJson) {
-                    $dataPeatonal['evidencias_ingreso'] = $evidenciasJson;
-                }
+            $idVisita = RecepcionVisitasData::crear_recepcion($dataCabecera);
 
-                $idPeatonal = RecepcionVisitasData::crear_recepcion($dataPeatonal);
-                $lastId = $idPeatonal;
-
-                foreach ($peatonales as $v) {
-                    $index = $v['_orig_index'];
-                    $nombreVal = trim($v['nombre'] ?? '');
-                    $dniVal = trim($v['dni'] ?? '');
-
-                    if ($nombreVal === '' && $dniVal === '' && empty($v['id_visitante'])) {
-                        continue;
-                    }
-                    if ($nombreVal === '') {
-                        $nombreVal = 'VISITANTE';
-                    }
-
-                    $idVisitante = null;
-                    if (! empty($v['id_visitante'])) {
-                        $idVisitante = (int) $v['id_visitante'];
-                        Visitante::whereKey($idVisitante)->update([
-                            'nombre' => $nombreVal,
-                            'apellido' => $v['apellido'] ?? '',
-                            'telefono' => $v['telefono'] ?? null,
-                        ]);
-                    } else {
-                        $idVisitante = self::obtenerOCrearVisitante(
-                            $nombreVal,
-                            $v['apellido'] ?? '',
-                            $dniVal ?: null,
-                            $v['telefono'] ?? null
-                        );
-                    }
-
-                    $urlFoto = null;
-                    if (isset($archivos[$index])) {
-                        $uploaded = ArchivoHelper::guardarArchivos('visitas', $archivos[$index]);
-                        if (! empty($uploaded)) {
-                            $urls = array_map(fn ($file) => $file['url'], $uploaded);
-                            $urlFoto = json_encode($urls);
-                        }
-                    }
-
-                    \App\Models\RecepcionVisitaDetalle::create([
-                        'id_recepcion_visita' => $idPeatonal,
-                        'id_visitante' => $idVisitante,
-                        'id_visita_vehiculo' => null,
-                        'es_conductor' => 0,
-                        'url_foto_documento' => $urlFoto,
-                        'estado' => EstadoVisita::EnPlanta->value,
-                    ]);
-                }
-            }
-
-            // 2. Crear cabecera y detalles por cada Vehículo Acompañante
+            // 2. Registrar vehículos acompañantes en visita_vehiculo vinculados a esta visita única
+            $tempIdToRealIdMap = [];
             if (! empty($vehiculos)) {
                 foreach ($vehiculos as $vehIdx => $veh) {
                     $placa = $veh['placa'] ?? '';
                     $cant = (int) ($veh['cantidad_personas'] ?? 1);
                     $tempId = (string) ($veh['id'] ?? $veh['temp_id'] ?? '');
-
-                    $vList = $vehiculosVisitantesMap[$tempId] ?? [];
-
-                    $dataVeh = $data;
-                    $dataVeh['con_vehiculo'] = true;
-                    $dataVeh['serie_placa'] = null;
-                    $dataVeh['numero_placa'] = $placa;
-                    if ($evidenciasJson) {
-                        $dataVeh['evidencias_ingreso'] = $evidenciasJson;
-                    }
-
-                    $idVehicular = RecepcionVisitasData::crear_recepcion($dataVeh);
-                    $lastId = $idVehicular;
 
                     $urlFotoVeh = null;
                     if (isset($archivosVehiculos[$vehIdx]) && ! empty($archivosVehiculos[$vehIdx])) {
@@ -150,69 +67,76 @@ class RecepcionVisitasService
                     }
 
                     $realVehId = DB::table('visita_vehiculo')->insertGetId([
-                        'id_recepcion_visita' => $idVehicular,
+                        'id_recepcion_visita' => $idVisita,
                         'placa' => $placa,
-                        'cantidad_personas' => count($vList) > 0 ? count($vList) : $cant,
+                        'cantidad_personas' => $cant,
                         'url_foto' => $urlFotoVeh,
                         'created_at' => now()->toDateTimeString(),
                     ]);
 
-                    foreach ($vList as $v) {
-                        $index = $v['_orig_index'];
-                        $nombreVal = trim($v['nombre'] ?? '');
-                        $dniVal = trim($v['dni'] ?? '');
-
-                        if ($nombreVal === '' && $dniVal === '' && empty($v['id_visitante'])) {
-                            continue;
-                        }
-                        if ($nombreVal === '') {
-                            $nombreVal = 'VISITANTE';
-                        }
-
-                        $idVisitante = null;
-                        if (! empty($v['id_visitante'])) {
-                            $idVisitante = (int) $v['id_visitante'];
-                            Visitante::whereKey($idVisitante)->update([
-                                'nombre' => $nombreVal,
-                                'apellido' => $v['apellido'] ?? '',
-                                'telefono' => $v['telefono'] ?? null,
-                            ]);
-                        } else {
-                            $idVisitante = self::obtenerOCrearVisitante(
-                                $nombreVal,
-                                $v['apellido'] ?? '',
-                                $dniVal ?: null,
-                                $v['telefono'] ?? null
-                            );
-                        }
-
-                        $urlFoto = null;
-                        if (isset($archivos[$index])) {
-                            $uploaded = ArchivoHelper::guardarArchivos('visitas', $archivos[$index]);
-                            if (! empty($uploaded)) {
-                                $urls = array_map(fn ($file) => $file['url'], $uploaded);
-                                $urlFoto = json_encode($urls);
-                            }
-                        }
-
-                        $rawEsConductor = $v['es_conductor'] ?? null;
-                        $esConductor = ($rawEsConductor === true || $rawEsConductor === 1 || $rawEsConductor === '1' || $rawEsConductor === 'true') ? 1 : 0;
-
-                        \App\Models\RecepcionVisitaDetalle::create([
-                            'id_recepcion_visita' => $idVehicular,
-                            'id_visitante' => $idVisitante,
-                            'id_visita_vehiculo' => $realVehId,
-                            'es_conductor' => $esConductor,
-                            'url_foto_documento' => $urlFoto,
-                            'estado' => EstadoVisita::EnPlanta->value,
-                        ]);
+                    if ($tempId !== '') {
+                        $tempIdToRealIdMap[$tempId] = $realVehId;
                     }
                 }
             }
 
+            // 3. Registrar todos los visitantes en recepcion_visita_detalle asociados a la misma visita única
+            foreach ($visitantes as $origIndex => $v) {
+                $nombreVal = trim($v['nombre'] ?? '');
+                $dniVal = trim($v['dni'] ?? '');
+
+                if ($nombreVal === '' && $dniVal === '' && empty($v['id_visitante'])) {
+                    continue;
+                }
+                if ($nombreVal === '') {
+                    $nombreVal = 'VISITANTE';
+                }
+
+                $idVisitante = null;
+                if (! empty($v['id_visitante'])) {
+                    $idVisitante = (int) $v['id_visitante'];
+                    Visitante::whereKey($idVisitante)->update([
+                        'nombre' => $nombreVal,
+                        'apellido' => $v['apellido'] ?? '',
+                        'telefono' => $v['telefono'] ?? null,
+                    ]);
+                } else {
+                    $idVisitante = self::obtenerOCrearVisitante(
+                        $nombreVal,
+                        $v['apellido'] ?? '',
+                        $dniVal ?: null,
+                        $v['telefono'] ?? null
+                    );
+                }
+
+                $urlFoto = null;
+                if (isset($archivos[$origIndex])) {
+                    $uploaded = ArchivoHelper::guardarArchivos('visitas', $archivos[$origIndex]);
+                    if (! empty($uploaded)) {
+                        $urls = array_map(fn ($file) => $file['url'], $uploaded);
+                        $urlFoto = json_encode($urls);
+                    }
+                }
+
+                $vehTempId = (string) ($v['id_visita_vehiculo'] ?? '');
+                $realVehId = $tempIdToRealIdMap[$vehTempId] ?? null;
+
+                $rawEsConductor = $v['es_conductor'] ?? null;
+                $esConductor = ($rawEsConductor === true || $rawEsConductor === 1 || $rawEsConductor === '1' || $rawEsConductor === 'true') ? 1 : 0;
+
+                \App\Models\RecepcionVisitaDetalle::create([
+                    'id_recepcion_visita' => $idVisita,
+                    'id_visitante' => $idVisitante,
+                    'id_visita_vehiculo' => $realVehId,
+                    'es_conductor' => $esConductor,
+                    'url_foto_documento' => $urlFoto,
+                    'estado' => EstadoVisita::EnPlanta->value,
+                ]);
+            }
+
             DB::commit();
 
-            $nuevaRecepcion = RecepcionVisitasData::get_recepcion_by_id($lastId);
+            $nuevaRecepcion = RecepcionVisitasData::get_recepcion_by_id($idVisita);
 
             return ApiResponse::success($nuevaRecepcion, 'Recepción de visita registrada correctamente');
 
@@ -255,19 +179,75 @@ class RecepcionVisitasService
         if ($detalle->id_recepcion_visita) {
             $visitaHeader = RecepcionVisita::find($detalle->id_recepcion_visita);
             if ($visitaHeader) {
-                $visitaHeader->fecha_hora_salida = $nowStr;
-                $visitaHeader->observacion_salida = $observacionSalida;
-                if ($urlEvidencias) {
-                    $visitaHeader->evidencias_salida = $urlEvidencias;
+                $pendientes = \App\Models\RecepcionVisitaDetalle::where('id_recepcion_visita', $detalle->id_recepcion_visita)
+                    ->where('estado', '!=', EstadoVisita::FueraDePlanta->value)
+                    ->count();
+
+                if ($pendientes === 0) {
+                    $visitaHeader->fecha_hora_salida = $nowStr;
+                    $visitaHeader->observacion_salida = $observacionSalida;
+                    if ($urlEvidencias) {
+                        $visitaHeader->evidencias_salida = $urlEvidencias;
+                    }
+                    $visitaHeader->estado = EstadoVisita::FueraDePlanta->value;
+                    $visitaHeader->save();
                 }
-                $visitaHeader->estado = EstadoVisita::FueraDePlanta->value;
-                $visitaHeader->save();
             }
         }
 
         $updated = RecepcionVisitasData::get_recepcion_by_id($detalle->id_recepcion_visita);
 
         return ApiResponse::success($updated, 'Salida de visita registrada correctamente');
+    }
+
+    /**
+     * Registrar la salida general de toda la recepción de visita (header + todos sus detalles pendientes).
+     * Las evidencias de salida se guardan únicamente en la tabla `recepcion_visita.evidencias_salida`.
+     */
+    public static function registrar_salida_general(int $idRecepcionVisita, ?string $observacionSalida, array $evidencias = []): array
+    {
+        $visitaHeader = RecepcionVisita::find($idRecepcionVisita);
+        if (! $visitaHeader) {
+            return ApiResponse::error('No se encontró la recepción de visita.');
+        }
+
+        $nowStr = now()->toDateTimeString();
+
+        $urlEvidencias = null;
+        if (! empty($evidencias)) {
+            $uploaded = ArchivoHelper::guardarArchivos('visitas/evidencias_salida', $evidencias);
+            if (! empty($uploaded)) {
+                $urls = array_map(fn ($f) => $f['url'], $uploaded);
+                $urlEvidencias = json_encode($urls);
+            }
+        }
+
+        // 1. Actualizar la cabecera recepcion_visita
+        $visitaHeader->observacion_salida = $observacionSalida;
+        $visitaHeader->fecha_hora_salida = $nowStr;
+        if ($urlEvidencias) {
+            $visitaHeader->evidencias_salida = $urlEvidencias;
+        }
+        $visitaHeader->estado = EstadoVisita::FueraDePlanta->value;
+        $visitaHeader->save();
+
+        // 2. Marcar salida a todos los detalles de visitantes de esta recepción que estén pendientes
+        $detalles = \App\Models\RecepcionVisitaDetalle::where('id_recepcion_visita', $idRecepcionVisita)
+            ->where('estado', '!=', EstadoVisita::FueraDePlanta->value)
+            ->get();
+
+        foreach ($detalles as $det) {
+            $det->estado = EstadoVisita::FueraDePlanta->value;
+            $det->fecha_hora_salida = $nowStr;
+            if (empty($det->observacion_salida) && ! empty($observacionSalida)) {
+                $det->observacion_salida = $observacionSalida;
+            }
+            $det->save();
+        }
+
+        $updated = RecepcionVisitasData::get_recepcion_by_id($idRecepcionVisita);
+
+        return ApiResponse::success($updated, 'Salida general de recepción registrada correctamente');
     }
 
     /**
@@ -301,6 +281,19 @@ class RecepcionVisitasService
                     }
                 }
 
+                $visitantesValidos = array_filter($visitantes, function ($v) {
+                    $nombre = trim($v['nombre'] ?? '');
+                    $dni = trim($v['dni'] ?? '');
+                    return $nombre !== '' || $dni !== '' || ! empty($v['id_visitante']);
+                });
+
+                if (empty($visitantesValidos) && empty($vehiculos)) {
+                    return [
+                        'id' => null,
+                        'mensaje' => 'No se creó recepción de visita por no haber visitantes ni vehículos registrados.',
+                    ];
+                }
+
                 $motivoTarget = $idMotivoIngreso;
                 if (empty($motivoTarget)) {
                     $motivoObj = DB::table('motivo_ingreso')->where('es_recepcion_unidad', 1)->orWhere('es_recepcion_unidad', true)->first();
@@ -312,102 +305,36 @@ class RecepcionVisitasService
                     ->where('recepcion_unidad.id', $idRecepcionUnidad)
                     ->value('vehiculo.placa');
 
-                // Agrupar visitantes por vehículo acompañante (temp_id) vs acompañantes de la unidad principal
-                $peatonalesUnidad = [];
-                $vehiculosVisitantesMap = [];
+                $hasPlaca = ! empty($placaUnidad);
+                $idRecepcionVisita = RecepcionVisitasData::crear_recepcion([
+                    'id_empleado_registro' => $idEmpleadoRegistro,
+                    'id_empleado_autoriza' => $idEmpleadoAutoriza,
+                    'id_motivo_ingreso' => $motivoTarget,
+                    'id_recepcion_unidad' => $idRecepcionUnidad,
+                    'observacion' => $observacion,
+                    'con_vehiculo' => $hasPlaca || ! empty($vehiculos),
+                    'placa' => $hasPlaca ? $placaUnidad : null,
+                    'serie_placa' => null,
+                    'numero_placa' => $hasPlaca ? $placaUnidad : null,
+                    'estado' => EstadoVisita::EnPlanta->value,
+                ]);
 
-                foreach ($visitantes as $origIndex => $v) {
-                    $v['_orig_index'] = $origIndex;
-                    $vehId = $v['id_visita_vehiculo'] ?? null;
-                    if (! empty($vehId)) {
-                        $key = (string) $vehId;
-                        $vehiculosVisitantesMap[$key][] = $v;
-                    } else {
-                        $peatonalesUnidad[] = $v;
-                    }
-                }
-
-                $lastId = null;
-
-                // 1. Crear cabecera y detalles para Ocupantes/Acompañantes de la Unidad Principal
-                if (! empty($peatonalesUnidad) || empty($vehiculos)) {
-                    $hasPlaca = ! empty($placaUnidad);
-                    $idRecepcionPrincipal = RecepcionVisitasData::crear_recepcion([
-                        'id_empleado_registro' => $idEmpleadoRegistro,
-                        'id_empleado_autoriza' => $idEmpleadoAutoriza,
-                        'id_motivo_ingreso' => $motivoTarget,
-                        'id_recepcion_unidad' => $idRecepcionUnidad,
-                        'observacion' => $observacion,
-                        'con_vehiculo' => $hasPlaca,
-                        'serie_placa' => null,
-                        'numero_placa' => $hasPlaca ? $placaUnidad : null,
-                        'estado' => EstadoVisita::EnPlanta->value,
+                $realVehIdUnidad = null;
+                if ($hasPlaca) {
+                    $realVehIdUnidad = DB::table('visita_vehiculo')->insertGetId([
+                        'id_recepcion_visita' => $idRecepcionVisita,
+                        'placa' => $placaUnidad,
+                        'cantidad_personas' => 1,
+                        'created_at' => now()->toDateTimeString(),
                     ]);
-                    $lastId = $idRecepcionPrincipal;
-
-                    $realVehIdUnidad = null;
-                    if ($hasPlaca) {
-                        $realVehIdUnidad = DB::table('visita_vehiculo')->insertGetId([
-                            'id_recepcion_visita' => $idRecepcionPrincipal,
-                            'placa' => $placaUnidad,
-                            'cantidad_personas' => count($peatonalesUnidad) > 0 ? count($peatonalesUnidad) : 1,
-                            'created_at' => now()->toDateTimeString(),
-                        ]);
-                    }
-
-                    foreach ($peatonalesUnidad as $v) {
-                        $index = $v['_orig_index'];
-                        $dni = $v['dni'] ?? null;
-                        $nombre = $v['nombre'] ?? 'VISITANTE';
-                        $apellido = $v['apellido'] ?? '';
-                        $telefono = $v['telefono'] ?? null;
-
-                        $idVisitante = self::obtenerOCrearVisitante($nombre, $apellido, $dni, $telefono);
-
-                        $urlFotoDoc = null;
-                        if (isset($archivosPorIndice[$index]) && ! empty($archivosPorIndice[$index])) {
-                            $guardados = ArchivoHelper::guardarArchivos('visitas', $archivosPorIndice[$index]);
-                            if (! empty($guardados)) {
-                                $urls = array_map(fn ($f) => $f['url'], $guardados);
-                                $urlFotoDoc = json_encode($urls);
-                            }
-                        }
-
-                        $rawEsConductor = $v['es_conductor'] ?? null;
-                        $esConductor = ($rawEsConductor === true || $rawEsConductor === 1 || $rawEsConductor === '1' || $rawEsConductor === 'true') ? 1 : 0;
-
-                        \App\Models\RecepcionVisitaDetalle::create([
-                            'id_recepcion_visita' => $idRecepcionPrincipal,
-                            'id_visitante' => $idVisitante,
-                            'id_visita_vehiculo' => $realVehIdUnidad,
-                            'es_conductor' => $esConductor,
-                            'url_foto_documento' => $urlFotoDoc,
-                            'estado' => EstadoVisita::EnPlanta->value,
-                        ]);
-                    }
                 }
 
-                // 2. Crear cabecera y detalles para cada Vehículo Acompañante Externo
+                $tempIdToRealIdMap = [];
                 if (! empty($vehiculos)) {
                     foreach ($vehiculos as $vehIdx => $veh) {
                         $placa = $veh['placa'] ?? '';
                         $cant = (int) ($veh['cantidad_personas'] ?? 1);
                         $tempId = (string) ($veh['id'] ?? $veh['temp_id'] ?? '');
-
-                        $vList = $vehiculosVisitantesMap[$tempId] ?? [];
-
-                        $idRecepcionVehicular = RecepcionVisitasData::crear_recepcion([
-                            'id_empleado_registro' => $idEmpleadoRegistro,
-                            'id_empleado_autoriza' => $idEmpleadoAutoriza,
-                            'id_motivo_ingreso' => $motivoTarget,
-                            'id_recepcion_unidad' => $idRecepcionUnidad,
-                            'observacion' => $observacion,
-                            'con_vehiculo' => true,
-                            'serie_placa' => null,
-                            'numero_placa' => $placa,
-                            'estado' => EstadoVisita::EnPlanta->value,
-                        ]);
-                        $lastId = $idRecepcionVehicular;
 
                         $urlFotoVeh = null;
                         if (isset($archivosVehiculos[$vehIdx]) && ! empty($archivosVehiculos[$vehIdx])) {
@@ -419,47 +346,53 @@ class RecepcionVisitasService
                         }
 
                         $realVehId = DB::table('visita_vehiculo')->insertGetId([
-                            'id_recepcion_visita' => $idRecepcionVehicular,
+                            'id_recepcion_visita' => $idRecepcionVisita,
                             'placa' => $placa,
-                            'cantidad_personas' => count($vList) > 0 ? count($vList) : $cant,
+                            'cantidad_personas' => $cant,
                             'url_foto' => $urlFotoVeh,
                             'created_at' => now()->toDateTimeString(),
                         ]);
 
-                        foreach ($vList as $v) {
-                            $index = $v['_orig_index'];
-                            $dni = $v['dni'] ?? null;
-                            $nombre = $v['nombre'] ?? 'VISITANTE';
-                            $apellido = $v['apellido'] ?? '';
-                            $telefono = $v['telefono'] ?? null;
-
-                            $idVisitante = self::obtenerOCrearVisitante($nombre, $apellido, $dni, $telefono);
-
-                            $urlFotoDoc = null;
-                            if (isset($archivosPorIndice[$index]) && ! empty($archivosPorIndice[$index])) {
-                                $guardados = ArchivoHelper::guardarArchivos('visitas', $archivosPorIndice[$index]);
-                                if (! empty($guardados)) {
-                                    $urls = array_map(fn ($f) => $f['url'], $guardados);
-                                    $urlFotoDoc = json_encode($urls);
-                                }
-                            }
-
-                            $rawEsConductor = $v['es_conductor'] ?? null;
-                            $esConductor = ($rawEsConductor === true || $rawEsConductor === 1 || $rawEsConductor === '1' || $rawEsConductor === 'true') ? 1 : 0;
-
-                            \App\Models\RecepcionVisitaDetalle::create([
-                                'id_recepcion_visita' => $idRecepcionVehicular,
-                                'id_visitante' => $idVisitante,
-                                'id_visita_vehiculo' => $realVehId,
-                                'es_conductor' => $esConductor,
-                                'url_foto_documento' => $urlFotoDoc,
-                                'estado' => EstadoVisita::EnPlanta->value,
-                            ]);
+                        if ($tempId !== '') {
+                            $tempIdToRealIdMap[$tempId] = $realVehId;
                         }
                     }
                 }
 
-                $nueva = RecepcionVisitasData::get_recepcion_by_id($lastId);
+                foreach ($visitantes as $index => $v) {
+                    $dni = $v['dni'] ?? null;
+                    $nombre = $v['nombre'] ?? 'VISITANTE';
+                    $apellido = $v['apellido'] ?? '';
+                    $telefono = $v['telefono'] ?? null;
+
+                    $idVisitante = self::obtenerOCrearVisitante($nombre, $apellido, $dni, $telefono);
+
+                    $urlFotoDoc = null;
+                    if (isset($archivosPorIndice[$index]) && ! empty($archivosPorIndice[$index])) {
+                        $guardados = ArchivoHelper::guardarArchivos('visitas', $archivosPorIndice[$index]);
+                        if (! empty($guardados)) {
+                            $urls = array_map(fn ($f) => $f['url'], $guardados);
+                            $urlFotoDoc = json_encode($urls);
+                        }
+                    }
+
+                    $vehTempId = (string) ($v['id_visita_vehiculo'] ?? '');
+                    $realVehId = $tempIdToRealIdMap[$vehTempId] ?? $realVehIdUnidad;
+
+                    $rawEsConductor = $v['es_conductor'] ?? null;
+                    $esConductor = ($rawEsConductor === true || $rawEsConductor === 1 || $rawEsConductor === '1' || $rawEsConductor === 'true') ? 1 : 0;
+
+                    \App\Models\RecepcionVisitaDetalle::create([
+                        'id_recepcion_visita' => $idRecepcionVisita,
+                        'id_visitante' => $idVisitante,
+                        'id_visita_vehiculo' => $realVehId,
+                        'es_conductor' => $esConductor,
+                        'url_foto_documento' => $urlFotoDoc,
+                        'estado' => EstadoVisita::EnPlanta->value,
+                    ]);
+                }
+
+                $nueva = RecepcionVisitasData::get_recepcion_by_id($idRecepcionVisita);
 
                 return ApiResponse::success($nueva, 'Visita de programación registrada correctamente');
             });

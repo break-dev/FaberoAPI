@@ -39,7 +39,7 @@ class RecepcionMineralController extends Controller
     public function validar_campo(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'field' => 'required|string|in:condicion_ingreso,placa,empresa_transporte,tipo_vehiculo,segunda_placa,conductor,fecha_hora_ingreso',
+            'field' => 'required|string|in:condicion_ingreso,tipo_carga,placa,empresa_transporte,tipo_vehiculo,segunda_placa,conductor,fecha_hora_ingreso',
             'value' => 'nullable',
         ]);
 
@@ -61,11 +61,13 @@ class RecepcionMineralController extends Controller
 
         $request->validate([
             'condicion_ingreso' => ['required', Rule::enum(CondicionIngreso::class)],
+            'id_empresa' => ['required', 'integer', 'exists:empresa,id'],
         ]);
 
         $condicionIngreso = $request->input('condicion_ingreso');
+        $idEmpresa = (int) $request->input('id_empresa');
 
-        return response()->json(RecepcionMineralService::crear_lote($id, (int) $authUser->id_empleado, $condicionIngreso));
+        return response()->json(RecepcionMineralService::crear_lote($id, (int) $authUser->id_empleado, $condicionIngreso, $idEmpresa));
     }
 
     /**

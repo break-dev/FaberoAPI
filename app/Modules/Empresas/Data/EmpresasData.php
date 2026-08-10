@@ -18,7 +18,7 @@ class EmpresasData
             e.ruc,
             e.razon_social,
             e.nombre_comercial,
-            e.abreviatura,
+            e.prefijo,
             e.path_logo
         FROM
             empresa e
@@ -50,13 +50,13 @@ class EmpresasData
     /**
      * Crear una nueva empresa
      */
-    public static function crear_empresa(string $ruc, string $razon_social, string $nombre_comercial, ?string $abreviatura = null, ?string $path_logo = null)
+    public static function crear_empresa(string $ruc, string $razon_social, string $nombre_comercial, ?string $prefijo = null, ?string $path_logo = null)
     {
         return Empresa::insertGetId([
             'ruc' => $ruc,
             'razon_social' => $razon_social,
             'nombre_comercial' => $nombre_comercial,
-            'abreviatura' => $abreviatura,
+            'prefijo' => $prefijo,
             'path_logo' => $path_logo,
         ]);
     }

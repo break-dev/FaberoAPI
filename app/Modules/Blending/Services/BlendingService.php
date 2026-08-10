@@ -22,9 +22,9 @@ class BlendingService
      *
      * @return array<int, object>
      */
-    public function get_disponibles(?int $idProveedor = null): array
+    public function get_disponibles(?int $idProveedor = null, ?int $idEmpresa = null): array
     {
-        return BlendingData::get_disponibles($idProveedor);
+        return BlendingData::get_disponibles($idProveedor, $idEmpresa);
     }
 
     /**

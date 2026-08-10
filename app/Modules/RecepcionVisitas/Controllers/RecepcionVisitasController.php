@@ -35,6 +35,7 @@ class RecepcionVisitasController extends Controller
             'id_motivo_ingreso' => 'required|integer|exists:motivo_ingreso,id',
             'observacion' => 'nullable|string',
             'con_vehiculo' => 'nullable|in:0,1,true,false',
+            'placa' => 'nullable|string|max:20',
             'serie_placa' => 'nullable|string|max:20',
             'numero_placa' => 'nullable|string|max:15',
             'visitantes' => 'nullable|array',
@@ -54,6 +55,7 @@ class RecepcionVisitasController extends Controller
         $conVehiculo = ($conVehiculoInput === '1' || $conVehiculoInput === 1 || $conVehiculoInput === 'true' || $conVehiculoInput === true);
 
         $empContacto = $request->input('id_empleado_autoriza') ?? $request->input('id_empleado_contacto');
+        $placaInput = $request->input('placa') ?? $request->input('numero_placa') ?? $request->input('serie_placa');
 
         $data = [
             'id_empleado_registro' => (int) $authUser->id_empleado,
@@ -62,8 +64,9 @@ class RecepcionVisitasController extends Controller
             'id_motivo_ingreso' => (int) $request->input('id_motivo_ingreso'),
             'observacion' => $request->input('observacion'),
             'con_vehiculo' => $conVehiculo,
-            'serie_placa' => $conVehiculo ? $request->input('serie_placa') : null,
-            'numero_placa' => $conVehiculo ? $request->input('numero_placa') : null,
+            'placa' => $conVehiculo ? $placaInput : null,
+            'serie_placa' => null,
+            'numero_placa' => $conVehiculo ? $placaInput : null,
         ];
 
         // Obtener archivos de los visitantes vinculados por su índice correspondiente
@@ -131,6 +134,33 @@ class RecepcionVisitasController extends Controller
     }
 
     /**
+     * Registrar salida general de la cabecera recepcion_visita.
+     */
+    public function registrar_salida_general(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'observacion_salida' => 'nullable|string',
+        ]);
+
+        $evidencias = [];
+        if ($request->hasFile('evidencias_salida')) {
+            $files = $request->file('evidencias_salida');
+            $evidencias = is_array($files) ? $files : [$files];
+        } elseif ($request->hasFile('evidencias')) {
+            $files = $request->file('evidencias');
+            $evidencias = is_array($files) ? $files : [$files];
+        }
+
+        $result = RecepcionVisitasService::registrar_salida_general(
+            $id,
+            $request->input('observacion_salida'),
+            $evidencias
+        );
+
+        return response()->json($result);
+    }
+
+    /**
      * Crear la visita (cabecera + detalle) asociada a una programación de unidad.
      *
      * Flujo:
@@ -162,6 +192,18 @@ class RecepcionVisitasController extends Controller
         }
 
         $visitantes = $request->input('visitantes', []);
+        $vehiculos = $request->input('vehiculos', []);
+
+        $visitantesValidos = array_filter($visitantes, function ($v) {
+            $nombre = trim($v['nombre'] ?? '');
+            $dni = trim($v['dni'] ?? '');
+            return $nombre !== '' || $dni !== '' || ! empty($v['id_visitante']);
+        });
+
+        if (empty($visitantesValidos) && empty($vehiculos)) {
+            return response()->json(ApiResponse::success(null, 'No se generó recepción de visita al no haber visitantes ni vehículos acompañantes.'));
+        }
+
         $archivosPorIndice = [];
         foreach ($visitantes as $index => $v) {
             $fileKey = "visitantes.{$index}.foto_documento";
@@ -171,7 +213,6 @@ class RecepcionVisitasController extends Controller
             }
         }
 
-        $vehiculos = $request->input('vehiculos', []);
         $archivosVehiculos = [];
         foreach ($vehiculos as $vIndex => $v) {
             $fileKey = "vehiculos.{$vIndex}.archivos";

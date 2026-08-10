@@ -34,7 +34,7 @@ class VehiculosData
         LEFT JOIN empresa_transporte et ON et.id = v.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv ON tv.id = v.id_tipo_vehiculo
         WHERE 1 = 1
-          AND (v.placa IS NULL OR v.placa <> \'FICT\')
+          AND (v.placa IS NULL OR v.placa NOT LIKE \'FICT%\')
         ';
 
         $params = [];

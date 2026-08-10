@@ -20,7 +20,8 @@ class BlendingController extends Controller
     {
         try {
             $idProveedor = $request->query('id_proveedor') ? (int) $request->query('id_proveedor') : null;
-            $items = $this->service->get_disponibles($idProveedor);
+            $idEmpresa = $request->query('id_empresa') ? (int) $request->query('id_empresa') : null;
+            $items = $this->service->get_disponibles($idProveedor, $idEmpresa);
 
             return response()->json(ApiResponse::success($items, 'Lotes y blendings disponibles consultados correctamente'));
         } catch (Exception $e) {

@@ -2,6 +2,7 @@
 
 namespace App\Modules\RecepcionMineral\Services;
 
+use App\Models\Empresa;
 use App\Models\LoteMineral;
 use App\Models\RecepcionUnidad;
 use App\Models\Vehiculo;
@@ -61,6 +62,7 @@ class RecepcionMineralService
 
         $validacionDatos = $recepcion->validacion_datos ?? [
             'condicion_ingreso' => false,
+            'tipo_carga' => false,
             'placa' => false,
             'empresa_transporte' => false,
             'tipo_vehiculo' => false,
@@ -72,6 +74,10 @@ class RecepcionMineralService
         switch ($field) {
             case 'condicion_ingreso':
                 $recepcion->tipo_ingreso = $value;
+                break;
+
+            case 'tipo_carga':
+                $recepcion->tipo_carga = $value;
                 break;
 
             case 'placa':
@@ -90,13 +96,7 @@ class RecepcionMineralService
                 }
 
                 // Buscar si existe un vehículo con esa placa en la BD
-                $query = Vehiculo::where('numero_placa', $numero);
-                if ($serie !== null && $serie !== '') {
-                    $query->where('serie_placa', $serie);
-                } else {
-                    $query->whereNull('serie_placa');
-                }
-                $vehiculoExistente = $query->first();
+                $vehiculoExistente = Vehiculo::where('placa', $value)->first();
 
                 if ($vehiculoExistente) {
                     // Si ya existe el vehículo, asociamos su ID
@@ -105,7 +105,7 @@ class RecepcionMineralService
 
                     // Si el vehículo que tenía asignado anteriormente era ficticio o temporal, lo borramos para no dejar basura
                     if ($vehiculo && $vehiculo->id !== $vehiculoExistente->id) {
-                        if ($vehiculo->serie_placa === 'FICT' || empty($vehiculo->numero_placa)) {
+                        if ($vehiculo->placa && str_contains($vehiculo->placa, 'FICT')) {
                             $vehiculo->delete();
                         }
                     }
@@ -117,8 +117,7 @@ class RecepcionMineralService
                         ]);
                         $recepcion->id_vehiculo = $vehiculo->id;
                     }
-                    $vehiculo->serie_placa = $serie;
-                    $vehiculo->numero_placa = $numero;
+                    $vehiculo->placa = $value;
                     $vehiculo->save();
 
                     $recepcion->save();
@@ -178,17 +177,22 @@ class RecepcionMineralService
     /**
      * Crear un lote vacío para una recepción de unidad
      */
-    public static function crear_lote(int $id, int $idEmpleadoRegistro, string $condicionIngreso): array
+    public static function crear_lote(int $id, int $idEmpleadoRegistro, string $condicionIngreso, int $idEmpresa): array
     {
         $recepcion = RecepcionUnidad::find($id);
         if (! $recepcion) {
             return ApiResponse::error('No se encontró el registro de recepción.');
         }
 
+        $empresa = Empresa::find($idEmpresa);
+        if (! $empresa) {
+            return ApiResponse::error('No se encontró la empresa seleccionada.');
+        }
+
         $isComercial = $condicionIngreso === CondicionIngreso::Comercializacion->value;
-        $prefijo = $isComercial ? 'FB' : 'LOT';
+        $prefijo = $isComercial ? ($empresa->prefijo ?? 'FB') : 'LOT';
         $filtros = $isComercial
-            ? ['condicion_ingreso' => CondicionIngreso::Comercializacion->value]
+            ? ['id_empresa' => $idEmpresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
             : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
 
         // Generar correlativo usando CorrelativoHelper
@@ -210,6 +214,7 @@ class RecepcionMineralService
         $lote = LoteMineral::create([
             'id_recepcion_unidad' => $id,
             'id_empleado_registro' => $idEmpleadoRegistro,
+            'id_empresa' => $idEmpresa,
             'condicion_ingreso' => $condicionIngreso,
             'correlativo' => $correlativoData['correlativo'],
             'numero_correlativo' => $correlativoData['numero_correlativo'],
@@ -447,8 +452,7 @@ class RecepcionMineralService
         $uniqueId = rand(1000, 9999);
         $plateNum = date('ymd').$uniqueId;
         $vehiculo = Vehiculo::create([
-            'serie_placa' => 'FICT',
-            'numero_placa' => $plateNum,
+            'placa' => 'FICT-'.$plateNum,
             'estado' => 'Activo',
         ]);
 
@@ -459,7 +463,7 @@ class RecepcionMineralService
 
         // 3. Crear el registro de recepcion_unidad vacío
         $recepcion = RecepcionUnidad::create([
-            'id_empleado_registro' => $data['id_empleado_registro'],
+            'id_empleado_recepcion' => $data['id_empleado_registro'],
             'id_vehiculo' => $vehiculo->id,
             'id_empresa_transporte' => null,
             'id_tipo_vehiculo' => null,
@@ -473,6 +477,7 @@ class RecepcionMineralService
             'id_sucursal' => $data['id_sucursal'],
             'validacion_datos' => [
                 'condicion_ingreso' => false,
+                'tipo_carga' => false,
                 'placa' => false,
                 'empresa_transporte' => false,
                 'tipo_vehiculo' => false,
@@ -519,9 +524,10 @@ class RecepcionMineralService
 
         if ($oldCondicion !== $newCondicion) {
             $isComercial = $newCondicion === CondicionIngreso::Comercializacion->value;
-            $prefijo = $isComercial ? 'FB' : 'LOT';
+            $empresa = Empresa::find($lote->id_empresa);
+            $prefijo = $isComercial ? ($empresa->prefijo ?? 'FB') : 'LOT';
             $filtros = $isComercial
-                ? ['condicion_ingreso' => CondicionIngreso::Comercializacion->value]
+                ? ['id_empresa' => $lote->id_empresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
                 : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
 
             // Generar correlativo usando CorrelativoHelper
@@ -610,7 +616,7 @@ class RecepcionMineralService
                     }
                     $v = \DB::table('vehiculo')->where('id', $id)->first();
                     if ($v) {
-                        return $v->serie_placa ? trim($v->serie_placa.'-'.$v->numero_placa) : $v->numero_placa;
+                        return $v->placa;
                     }
 
                     return "ID #$id";

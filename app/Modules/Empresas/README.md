@@ -25,11 +25,10 @@ Gestiona la identidad corporativa de las unidades de negocio y contratistas que 
 - **SQL de Integridad**:
     - `verificar_ruc_duplicado`: Consulta rápida al maestro de empresas.
 - **Persistencia**:
-    - `crear_empresa`: Registra la razón social, nombre comercial y abreviatura (usada para correlativos en otros módulos).
+    - `crear_empresa`: Registra la razón social, nombre comercial y prefijo (usado para correlativos en otros módulos).
 
-## ⚙️ Reglas de Negocio
-
-- **Abreviaturas**: El campo `abreviatura` es opcional pero recomendado, ya que se utiliza como prefijo en la generación de códigos de labores y otros documentos internos.
+### Consideraciones
+- **Prefijo**: El campo `prefijo` es opcional pero recomendado, ya que se utiliza en la generación de códigos de labores y otros documentos internos.
 - **RUC Obligatorio**: No se permite el registro de empresas sin un número de identificación fiscal válido.
 
 ## 📂 Esquema de Base de Datos Relacionada

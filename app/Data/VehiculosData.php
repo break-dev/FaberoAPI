@@ -7,11 +7,11 @@ use Illuminate\Support\Facades\DB;
 class VehiculosData
 {
     /**
-     * Obtener listado global de vehículos simplificado, filtrable por serie, número de placa y/o ID.
+     * Obtener listado global de vehículos simplificado, filtrable por placa y/o ID.
      */
-    public static function get_vehiculos(?string $seriePlaca = null, ?string $numeroPlaca = null, ?int $id = null, ?bool $esCarreta = null)
+    public static function get_vehiculos(?string $placa = null, ?int $id = null, ?bool $esCarreta = null)
     {
-        $sql = '
+        $sql = "
         SELECT
             v.id AS id_vehiculo,
             et.id AS id_empresa_transporte,
@@ -20,8 +20,6 @@ class VehiculosData
             tv.nombre AS tipo_vehiculo_nombre,
             tv.es_carreta,
             v.placa,
-            v.placa AS numero_placa,
-            NULL AS serie_placa,
             v.estado,
             (
                 SELECT ru2.id_conductor
@@ -35,8 +33,8 @@ class VehiculosData
         LEFT JOIN empresa_transporte et ON et.id = v.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv ON tv.id = v.id_tipo_vehiculo
         WHERE 1 = 1
-          AND (v.placa IS NULL OR v.placa <> \'FICT\')
-        ';
+          AND (v.placa IS NULL OR v.placa NOT LIKE 'FICT%')
+        ";
 
         $params = [];
 
@@ -45,10 +43,9 @@ class VehiculosData
             $params['id'] = $id;
         }
 
-        $searchPlaca = ! empty($numeroPlaca) ? $numeroPlaca : $seriePlaca;
-        if ($searchPlaca !== null && $searchPlaca !== '') {
+        if ($placa !== null && $placa !== '') {
             $sql .= ' AND v.placa LIKE :placa';
-            $params['placa'] = '%'.$searchPlaca.'%';
+            $params['placa'] = '%'.$placa.'%';
         }
 
         if ($esCarreta === true) {
@@ -67,13 +64,12 @@ class VehiculosData
      * Si ya existe un vehículo con la misma placa, retorna su id sin crear duplicado.
      */
     public static function crear_vehiculo_simplificado(
-        ?string $seriePlaca,
-        string $numeroPlaca,
+        string $placa,
         ?int $idEmpresaTransporte = null,
         ?int $idTipoVehiculo = null
     ): int {
-        $placaCompleta = trim(($seriePlaca ? $seriePlaca.'-' : '').$numeroPlaca);
-        $existenteId = self::buscar_vehiculo_existente($seriePlaca, $numeroPlaca);
+        $placaLimpia = trim(strtoupper($placa));
+        $existenteId = self::buscar_vehiculo_existente($placaLimpia);
         if ($existenteId !== null) {
             return $existenteId;
         }
@@ -92,7 +88,7 @@ class VehiculosData
             'id_marca' => null,
             'id_empresa_transporte' => $idEmpresaTransporte,
             'id_tipo_vehiculo' => $idTipoVehiculo,
-            'placa' => $placaCompleta,
+            'placa' => $placaLimpia,
             'numero_constancia_mtc' => null,
             'capacidad' => 0.0,
             'tara' => 0.0,
@@ -103,13 +99,12 @@ class VehiculosData
         ]);
     }
 
-    public static function buscar_vehiculo_existente(?string $seriePlaca, string $numeroPlaca): ?int
+    public static function buscar_vehiculo_existente(string $placa): ?int
     {
-        $placaCompleta = trim(($seriePlaca ? $seriePlaca.'-' : '').$numeroPlaca);
+        $placaLimpia = trim(strtoupper($placa));
 
         return DB::table('vehiculo')
-            ->where('placa', $placaCompleta)
-            ->orWhere('placa', $numeroPlaca)
+            ->where('placa', $placaLimpia)
             ->value('id');
     }
 

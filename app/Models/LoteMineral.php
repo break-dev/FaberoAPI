@@ -12,6 +12,7 @@ class LoteMineral extends Model
 
     protected $fillable = [
         'id_recepcion_unidad',
+        'id_empresa',
         'id_proveedor_minero',
         'id_empleado_registro',
         'id_encargado_muestra',

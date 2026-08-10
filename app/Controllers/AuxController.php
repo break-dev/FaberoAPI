@@ -19,6 +19,7 @@ use App\Services\VehiculosService;
 use App\Services\VisitanteService;
 use App\Services\ZonasOrigenService;
 use App\Shared\Enums\_Generic\EstadoBase;
+use App\Shared\Enums\_Generic\EstadoPesaje;
 use App\Shared\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -410,7 +411,9 @@ class AuxController extends Controller
             (
                 SELECT COUNT(*)
                 FROM lote_guia lg
+                INNER JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
                 WHERE lg.id_lote_mineral = lm.id
+                  AND gpt.estado = :estado_guia_activo
             ) AS en_guia
         FROM lote_mineral lm
         INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
@@ -421,7 +424,10 @@ class AuxController extends Controller
           AND ru.estado_pesaje = :estado_pesaje
         ';
 
-        $params = ['estado_pesaje' => 'Pesado'];
+        $params = [
+            'estado_pesaje' => EstadoPesaje::Pesado->value,
+            'estado_guia_activo' => EstadoBase::Activo->value,
+        ];
 
         if ($idSucursal !== null) {
             $sql .= ' AND ru.id_sucursal = :id_sucursal';

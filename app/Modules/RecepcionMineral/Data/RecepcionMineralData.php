@@ -459,7 +459,7 @@ class RecepcionMineralData
 
         // 2. Obtener vehículos de la sucursal (de recepcion o del lote)
         $vehiculosSql = '
-        SELECT DISTINCT v.id, v.placa, NULL AS serie_placa, v.placa AS numero_placa
+        SELECT DISTINCT v.id, v.placa
         FROM lote_mineral lm
         INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
         INNER JOIN vehiculo v ON v.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)

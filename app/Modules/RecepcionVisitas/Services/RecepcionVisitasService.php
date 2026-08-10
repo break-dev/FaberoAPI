@@ -314,8 +314,6 @@ class RecepcionVisitasService
                     'observacion' => $observacion,
                     'con_vehiculo' => $hasPlaca || ! empty($vehiculos),
                     'placa' => $hasPlaca ? $placaUnidad : null,
-                    'serie_placa' => null,
-                    'numero_placa' => $hasPlaca ? $placaUnidad : null,
                     'estado' => EstadoVisita::EnPlanta->value,
                 ]);
 

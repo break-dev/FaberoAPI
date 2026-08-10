@@ -227,7 +227,7 @@ class AuxController extends Controller
      */
     public function get_vehiculos(Request $request): JsonResponse
     {
-        $placa = $request->input('placa') ?? $request->input('numero_placa') ?? $request->input('serie') ?? $request->input('serie_placa');
+        $placa = $request->input('placa');
         $esCarretaParam = $request->input('es_carreta');
         $esCarreta = $esCarretaParam === null ? null : filter_var($esCarretaParam, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
 
@@ -241,12 +241,11 @@ class AuxController extends Controller
     {
         $request->validate([
             'placa' => 'nullable|string|max:20',
-            'numero_placa' => 'nullable|string|max:20',
             'id_empresa_transporte' => 'nullable|integer',
             'id_tipo_vehiculo' => 'nullable|integer',
         ]);
 
-        $placa = $request->input('placa') ?? $request->input('numero_placa') ?? '';
+        $placa = $request->input('placa') ?? '';
 
         $empId = $request->input('id_empresa_transporte') ? (int) $request->input('id_empresa_transporte') : null;
         $tipoId = $request->input('id_tipo_vehiculo') ? (int) $request->input('id_tipo_vehiculo') : null;
@@ -407,8 +406,7 @@ class AuxController extends Controller
             lm.peso_neto,
             lm.created_at,
             p.razon_social AS proveedor_nombre,
-            v.numero_placa AS vehiculo_placa,
-            v.serie_placa AS vehiculo_serie,
+            v.placa AS vehiculo_placa,
             (
                 SELECT COUNT(*)
                 FROM lote_guia lg

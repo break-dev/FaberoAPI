@@ -36,8 +36,6 @@ class RecepcionVisitasController extends Controller
             'observacion' => 'nullable|string',
             'con_vehiculo' => 'nullable|in:0,1,true,false',
             'placa' => 'nullable|string|max:20',
-            'serie_placa' => 'nullable|string|max:20',
-            'numero_placa' => 'nullable|string|max:15',
             'visitantes' => 'nullable|array',
             'visitantes.*.id_visitante' => 'nullable|integer|exists:visitante,id',
             'visitantes.*.nombre' => 'nullable|string|max:100',
@@ -55,7 +53,7 @@ class RecepcionVisitasController extends Controller
         $conVehiculo = ($conVehiculoInput === '1' || $conVehiculoInput === 1 || $conVehiculoInput === 'true' || $conVehiculoInput === true);
 
         $empContacto = $request->input('id_empleado_autoriza') ?? $request->input('id_empleado_contacto');
-        $placaInput = $request->input('placa') ?? $request->input('numero_placa') ?? $request->input('serie_placa');
+        $placaInput = $request->input('placa');
 
         $data = [
             'id_empleado_registro' => (int) $authUser->id_empleado,
@@ -65,8 +63,6 @@ class RecepcionVisitasController extends Controller
             'observacion' => $request->input('observacion'),
             'con_vehiculo' => $conVehiculo,
             'placa' => $conVehiculo ? $placaInput : null,
-            'serie_placa' => null,
-            'numero_placa' => $conVehiculo ? $placaInput : null,
         ];
 
         // Obtener archivos de los visitantes vinculados por su índice correspondiente

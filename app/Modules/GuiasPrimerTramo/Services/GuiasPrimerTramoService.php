@@ -258,7 +258,7 @@ class GuiasPrimerTramoService
                         }
                         $v = DB::table('vehiculo')->where('id', $id)->first();
                         if ($v) {
-                            return $v->placa ?? ($v->serie_placa ? trim($v->serie_placa.'-'.$v->numero_placa) : $v->numero_placa);
+                            return $v->placa;
                         }
 
                         return "ID #$id";
@@ -285,7 +285,7 @@ class GuiasPrimerTramoService
                         }
                         $v = DB::table('vehiculo')->where('id', $id)->first();
                         if ($v) {
-                            return $v->placa ?? ($v->serie_placa ? trim($v->serie_placa.'-'.$v->numero_placa) : $v->numero_placa);
+                            return $v->placa;
                         }
 
                         return "ID #$id";

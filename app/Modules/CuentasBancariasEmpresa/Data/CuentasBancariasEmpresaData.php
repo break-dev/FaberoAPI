@@ -140,7 +140,7 @@ class CuentasBancariasEmpresaData
         ];
 
         if ($esParaDetraccion) {
-            $sql .= " AND cn.es_para_detraccion = 1 AND bc.abreviatura = 'BN'";
+            $sql .= " AND cn.es_para_detraccion = 1 AND (bc.abreviatura = 'BN' OR bc.es_nacional = 1)";
         }
 
         $sql .= ' ORDER BY cn.es_para_detraccion DESC, bc.nombre, cn.numero_cuenta';

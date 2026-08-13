@@ -3,10 +3,13 @@
 namespace App\Modules\RecepcionUnidades\Services;
 
 use App\Models\RecepcionUnidad;
+use App\Models\RecepcionVisita;
+use App\Models\RecepcionVisitaDetalle;
 use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Shared\Enums\_Generic\EstadoVisita;
 use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\ApiResponse;
+use App\Modules\RecepcionVisitas\Services\RecepcionVisitasService;
 
 class RecepcionUnidadesService
 {
@@ -60,7 +63,7 @@ class RecepcionUnidadesService
         $hasVehiculos = ! empty($visitaData['vehiculos']);
 
         if ($visitaData && ! empty($visitaData['id_motivo_ingreso']) && ($hasVisitantes || $hasVehiculos)) {
-            \App\Modules\RecepcionVisitas\Services\RecepcionVisitasService::crear_recepcion_para_programacion(
+            RecepcionVisitasService::crear_recepcion_para_programacion(
                 $data['id_empleado_registro'],
                 $id,
                 (int) $visitaData['id_motivo_ingreso'],
@@ -113,7 +116,7 @@ class RecepcionUnidadesService
         $recepcion->save();
 
         // Registrar la salida en la visita y sus detalles vinculados a esta recepción de unidad
-        $visitas = \App\Models\RecepcionVisita::where('id_recepcion_unidad', $id)->get();
+        $visitas = RecepcionVisita::where('id_recepcion_unidad', $id)->get();
         foreach ($visitas as $visita) {
             $visita->fecha_hora_salida = $nowStr;
             $visita->observacion_salida = $observacionSalida;
@@ -134,7 +137,7 @@ class RecepcionUnidadesService
                 'estado' => EstadoVisita::FueraDePlanta->value,
             ];
 
-            \App\Models\RecepcionVisitaDetalle::where('id_recepcion_visita', $visita->id)->update($updateDetalleData);
+            RecepcionVisitaDetalle::where('id_recepcion_visita', $visita->id)->update($updateDetalleData);
         }
 
         $updated = RecepcionUnidadesData::get_recepcion_by_id($id);

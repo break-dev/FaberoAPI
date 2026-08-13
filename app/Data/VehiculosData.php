@@ -79,11 +79,6 @@ class VehiculosData
             $idEmpresaTransporte = $firstEmp ? (int) $firstEmp->id : 1;
         }
 
-        if (empty($idTipoVehiculo)) {
-            $firstTipo = DB::table('tipo_vehiculo')->first();
-            $idTipoVehiculo = $firstTipo ? (int) $firstTipo->id : 1;
-        }
-
         return DB::table('vehiculo')->insertGetId([
             'id_marca' => null,
             'id_empresa_transporte' => $idEmpresaTransporte,

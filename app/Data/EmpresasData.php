@@ -19,8 +19,6 @@ class EmpresasData
             emp.id AS id_empresa,
             emp.ruc,
             emp.razon_social,
-            emp.nombre_comercial,
-            emp.prefijo,
             emp.path_logo,
             (
                 SELECT

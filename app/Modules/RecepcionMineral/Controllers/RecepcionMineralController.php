@@ -85,7 +85,6 @@ class RecepcionMineralController extends Controller
     {
         $request->validate([
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
-            'id_encargado_muestra' => 'nullable|integer|exists:encargado_muestra,id',
             'id_zona_origen' => 'nullable|integer|exists:zona_origen,id',
             'numero_contacto' => 'nullable|string|max:50',
             'tipo_carga' => 'required|string|max:50',
@@ -99,7 +98,6 @@ class RecepcionMineralController extends Controller
 
         $data = [
             'id_proveedor_minero' => $request->input('id_proveedor_minero'),
-            'id_encargado_muestra' => $request->input('id_encargado_muestra'),
             'id_zona_origen' => $request->input('id_zona_origen'),
             'numero_contacto' => $request->input('numero_contacto'),
             'tipo_carga' => $request->input('tipo_carga'),
@@ -132,7 +130,6 @@ class RecepcionMineralController extends Controller
             'evidencias.*' => 'file',
             'evidencias_existentes' => 'nullable|string',
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
-            'id_encargado_muestra' => 'nullable|integer|exists:encargado_muestra,id',
             'id_zona_origen' => 'nullable|integer|exists:zona_origen,id',
             'numero_contacto' => 'nullable|string|max:50',
             'tipo_carga' => 'nullable|string|max:50',
@@ -151,7 +148,6 @@ class RecepcionMineralController extends Controller
             'observacion_peso_final' => $request->input('observacion_peso_final'),
             'evidencias_existentes' => $request->input('evidencias_existentes'),
             'id_proveedor_minero' => $request->input('id_proveedor_minero'),
-            'id_encargado_muestra' => $request->input('id_encargado_muestra'),
             'id_zona_origen' => $request->input('id_zona_origen'),
             'numero_contacto' => $request->input('numero_contacto'),
             'tipo_carga' => $request->input('tipo_carga'),
@@ -236,7 +232,6 @@ class RecepcionMineralController extends Controller
 
         $request->validate([
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
-            'id_encargado_muestra' => 'nullable|integer|exists:encargado_muestra,id',
             'id_zona_origen' => 'nullable|integer|exists:zona_origen,id',
             'numero_contacto' => 'nullable|string|max:50',
             'tipo_carga' => 'required|string|max:50',
@@ -258,7 +253,6 @@ class RecepcionMineralController extends Controller
 
         $data = [
             'id_proveedor_minero' => $request->input('id_proveedor_minero'),
-            'id_encargado_muestra' => $request->input('id_encargado_muestra'),
             'id_zona_origen' => $request->input('id_zona_origen'),
             'numero_contacto' => $request->input('numero_contacto'),
             'tipo_carga' => $request->input('tipo_carga'),

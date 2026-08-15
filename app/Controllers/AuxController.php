@@ -6,7 +6,6 @@ use App\Services\ConductoresService;
 use App\Services\EmpleadosService;
 use App\Services\EmpresasService;
 use App\Services\EmpresasTransporteService;
-use App\Services\EncargadosMuestraService;
 use App\Services\MarcasService;
 use App\Services\MotivoIngresoService;
 use App\Services\ProveedoresService;
@@ -374,14 +373,6 @@ class AuxController extends Controller
         );
 
         return response()->json($result);
-    }
-
-    /**
-     * Obtener listado global de encargados de muestra (solo id y nombre completo)
-     */
-    public function get_encargados_muestra(): JsonResponse
-    {
-        return response()->json(EncargadosMuestraService::get_encargados_muestra());
     }
 
     /**

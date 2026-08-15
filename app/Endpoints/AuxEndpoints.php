@@ -60,9 +60,6 @@ Route::middleware('auth.jwt.custom')->group(function () {
         Route::get('/zonas-origen', [AuxController::class, 'get_zonas_origen']);
         Route::post('/zonas-origen', [AuxController::class, 'crear_zona_origen']);
 
-        // encargados de muestra
-        Route::get('/encargados-muestra', [AuxController::class, 'get_encargados_muestra']);
-
         // lotes de mineral disponibles para guías
         Route::get('/lotes-mineral-disponibles', [AuxController::class, 'get_lotes_mineral_disponibles']);
 

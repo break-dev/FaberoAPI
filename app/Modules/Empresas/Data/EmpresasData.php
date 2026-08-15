@@ -17,12 +17,10 @@ class EmpresasData
             e.id AS id_empresa,
             e.ruc,
             e.razon_social,
-            e.nombre_comercial,
-            e.prefijo,
             e.path_logo
         FROM
             empresa e
-        WHERE 
+        WHERE
             1 = 1
         ';
 
@@ -34,7 +32,7 @@ class EmpresasData
             return DB::selectOne($sql, $params);
         }
 
-        $sql .= ' ORDER BY e.nombre_comercial ASC';
+        $sql .= ' ORDER BY e.razon_social ASC';
 
         return DB::select($sql, $params);
     }
@@ -50,13 +48,11 @@ class EmpresasData
     /**
      * Crear una nueva empresa
      */
-    public static function crear_empresa(string $ruc, string $razon_social, string $nombre_comercial, ?string $prefijo = null, ?string $path_logo = null)
+    public static function crear_empresa(string $ruc, string $razon_social, ?string $path_logo = null)
     {
         return Empresa::insertGetId([
             'ruc' => $ruc,
             'razon_social' => $razon_social,
-            'nombre_comercial' => $nombre_comercial,
-            'prefijo' => $prefijo,
             'path_logo' => $path_logo,
         ]);
     }

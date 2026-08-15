@@ -90,14 +90,11 @@ class RecepcionMineralData
             lm.id_recepcion_unidad,
             lm.id_empresa,
             emp_tit.razon_social AS empresa_nombre,
-            emp_tit.prefijo AS empresa_prefijo,
             lm.id_proveedor_minero,
             p.razon_social AS proveedor_nombre,
             p.telefono AS proveedor_telefono,
             lm.id_empleado_registro,
             CONCAT(emp.nombre, " ", emp.apellido) AS empleado_registro_nombre,
-            lm.id_encargado_muestra,
-            CONCAT(em.nombre, " ", em.apellido) AS encargado_nombre,
             lm.id_zona_origen,
             zo.nombre AS zona_origen_nombre,
             lm.correlativo,
@@ -133,7 +130,6 @@ class RecepcionMineralData
         INNER JOIN empleado emp ON emp.id = lm.id_empleado_registro
         LEFT JOIN empresa emp_tit ON emp_tit.id = lm.id_empresa
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
-        LEFT JOIN encargado_muestra em ON em.id = lm.id_encargado_muestra
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
         LEFT JOIN vehiculo v_lote ON v_lote.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)
         LEFT JOIN empresa_transporte et_lote ON et_lote.id = COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte)
@@ -175,14 +171,11 @@ class RecepcionMineralData
             lm.id_recepcion_unidad,
             lm.id_empresa,
             emp_tit.razon_social AS empresa_nombre,
-            emp_tit.prefijo AS empresa_prefijo,
             lm.id_proveedor_minero,
             p.razon_social AS proveedor_nombre,
             p.telefono AS proveedor_telefono,
             lm.id_empleado_registro,
             CONCAT(emp.nombre, " ", emp.apellido) AS empleado_registro_nombre,
-            lm.id_encargado_muestra,
-            CONCAT(em.nombre, " ", em.apellido) AS encargado_nombre,
             lm.id_zona_origen,
             zo.nombre AS zona_origen_nombre,
             lm.correlativo,
@@ -219,7 +212,6 @@ class RecepcionMineralData
         INNER JOIN empleado emp ON emp.id = lm.id_empleado_registro
         LEFT JOIN empresa emp_tit ON emp_tit.id = lm.id_empresa
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
-        LEFT JOIN encargado_muestra em ON em.id = lm.id_encargado_muestra
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
         LEFT JOIN vehiculo v_lote ON v_lote.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)
         LEFT JOIN empresa_transporte et_lote ON et_lote.id = COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte)
@@ -362,10 +354,7 @@ class RecepcionMineralData
             
             zo.id AS id_zona_origen,
             zo.nombre AS zona_origen_nombre,
-            
-            em.id AS id_encargado_muestra,
-            CONCAT(em.nombre, " ", em.apellido) AS encargado_muestra_nombre,
-            
+
             COALESCE(lm.id_conductor, ru.id_conductor) AS id_conductor,
             CONCAT(c.nombre, " ", c.apellido) AS conductor_nombre_completo,
             c.dni AS conductor_dni,
@@ -380,7 +369,6 @@ class RecepcionMineralData
         LEFT JOIN tipo_vehiculo tv ON tv.id = COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo)
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
-        LEFT JOIN encargado_muestra em ON em.id = lm.id_encargado_muestra
         LEFT JOIN conductor c ON c.id = COALESCE(lm.id_conductor, ru.id_conductor)
         LEFT JOIN empleado emp_reg ON emp_reg.id = lm.id_empleado_registro
         WHERE

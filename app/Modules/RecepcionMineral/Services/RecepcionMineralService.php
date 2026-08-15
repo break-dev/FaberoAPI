@@ -190,7 +190,7 @@ class RecepcionMineralService
         }
 
         $isComercial = $condicionIngreso === CondicionIngreso::Comercializacion->value;
-        $prefijo = $isComercial ? ($empresa->prefijo ?? 'FB') : 'LOT';
+        $prefijo = $isComercial ? 'FB' : 'LOT';
         $filtros = $isComercial
             ? ['id_empresa' => $idEmpresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
             : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
@@ -268,7 +268,6 @@ class RecepcionMineralService
         }
 
         $lote->id_proveedor_minero = $data['id_proveedor_minero'] ? (int) $data['id_proveedor_minero'] : null;
-        $lote->id_encargado_muestra = $data['id_encargado_muestra'] ? (int) $data['id_encargado_muestra'] : null;
         $lote->id_zona_origen = $data['id_zona_origen'] ? (int) $data['id_zona_origen'] : null;
         $lote->numero_contacto = $data['numero_contacto'];
         $lote->tipo_carga = $data['tipo_carga'];
@@ -350,9 +349,6 @@ class RecepcionMineralService
         // Actualizar datos del peso inicial si fueron provistos
         if (array_key_exists('id_proveedor_minero', $data)) {
             $lote->id_proveedor_minero = $data['id_proveedor_minero'] ? (int) $data['id_proveedor_minero'] : null;
-        }
-        if (array_key_exists('id_encargado_muestra', $data)) {
-            $lote->id_encargado_muestra = $data['id_encargado_muestra'] ? (int) $data['id_encargado_muestra'] : null;
         }
         if (array_key_exists('id_zona_origen', $data)) {
             $lote->id_zona_origen = $data['id_zona_origen'] ? (int) $data['id_zona_origen'] : null;
@@ -524,8 +520,7 @@ class RecepcionMineralService
 
         if ($oldCondicion !== $newCondicion) {
             $isComercial = $newCondicion === CondicionIngreso::Comercializacion->value;
-            $empresa = Empresa::find($lote->id_empresa);
-            $prefijo = $isComercial ? ($empresa->prefijo ?? 'FB') : 'LOT';
+            $prefijo = $isComercial ? 'FB' : 'LOT';
             $filtros = $isComercial
                 ? ['id_empresa' => $lote->id_empresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
                 : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
@@ -572,18 +567,6 @@ class RecepcionMineralService
                     $p = \DB::table('proveedor')->where('id', $id)->first();
 
                     return $p ? $p->razon_social : "ID #$id";
-                },
-            ],
-            'id_encargado_muestra' => [
-                'nombre' => 'Encargado de muestra',
-                'tipo' => 'int',
-                'resolver' => function ($id) {
-                    if (! $id) {
-                        return null;
-                    }
-                    $em = \DB::table('encargado_muestra')->where('id', $id)->first();
-
-                    return $em ? trim($em->nombre.' '.$em->apellido) : "ID #$id";
                 },
             ],
             'id_zona_origen' => [
@@ -747,7 +730,6 @@ class RecepcionMineralService
 
         // Actualizar datos del lote
         $lote->id_proveedor_minero = $data['id_proveedor_minero'] ? (int) $data['id_proveedor_minero'] : null;
-        $lote->id_encargado_muestra = $data['id_encargado_muestra'] ? (int) $data['id_encargado_muestra'] : null;
         $lote->id_zona_origen = $data['id_zona_origen'] ? (int) $data['id_zona_origen'] : null;
         $lote->numero_contacto = $data['numero_contacto'];
         $lote->tipo_carga = $data['tipo_carga'];

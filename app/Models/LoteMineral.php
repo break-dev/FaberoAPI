@@ -15,7 +15,6 @@ class LoteMineral extends Model
         'id_empresa',
         'id_proveedor_minero',
         'id_empleado_registro',
-        'id_encargado_muestra',
         'id_zona_origen',
         'correlativo',
         'numero_correlativo',

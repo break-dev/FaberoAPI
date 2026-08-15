@@ -28,14 +28,11 @@ class EmpresasController extends Controller
         $validator = Validator::make($request->all(), [
             'ruc' => 'required|string|size:11',
             'razon_social' => 'required|string|max:128',
-            'nombre_comercial' => 'required|string|max:128',
-            'prefijo' => 'nullable|string|max:24',
             'path_logo' => 'nullable|image|mimes:jpg,png,jpeg|max:2048',
         ], [
             'ruc.required' => 'El RUC es obligatorio',
             'ruc.size' => 'El RUC debe tener 11 dígitos',
             'razon_social.required' => 'La razón social es obligatoria',
-            'nombre_comercial.required' => 'El nombre comercial es obligatorio',
         ]);
 
         if ($validator->fails()) {
@@ -45,8 +42,6 @@ class EmpresasController extends Controller
         $result = EmpresasService::crear_empresa(
             ruc: $request->input('ruc'),
             razon_social: $request->input('razon_social'),
-            nombre_comercial: $request->input('nombre_comercial'),
-            prefijo: $request->input('prefijo'),
             logo: $request->file('path_logo')
         );
 

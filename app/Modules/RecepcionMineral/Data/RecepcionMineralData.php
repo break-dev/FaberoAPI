@@ -28,7 +28,6 @@ class RecepcionMineralData
             CONCAT(c.nombre, " ", c.apellido) AS conductor_nombre_completo,
             c.dni AS conductor_dni,
             ru.tipo_ingreso,
-            ru.tipo_carga,
             ru.segunda_placa,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
@@ -39,8 +38,8 @@ class RecepcionMineralData
             ru.estado,
             ru.estado_salida,
             ru.estado_pesaje,
-            ru.validacion_datos,
-            ru.id_sucursal AS id_sucursal
+            ru.id_sucursal AS id_sucursal,
+            ru.es_recepcion_ficticia
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -69,9 +68,6 @@ class RecepcionMineralData
             if (isset($item->evidencias)) {
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
             }
-            if (isset($item->validacion_datos)) {
-                $item->validacion_datos = json_decode($item->validacion_datos, true) ?? [];
-            }
             // Obtener los lotes de esta recepción
             $item->lotes = self::get_lotes_by_recepcion($item->id);
         }
@@ -99,7 +95,6 @@ class RecepcionMineralData
             zo.nombre AS zona_origen_nombre,
             lm.correlativo,
             lm.numero_correlativo,
-            lm.tipo_carga,
             lm.numero_contacto,
             lm.tipo_producto,
             lm.tipo_mineral,
@@ -180,7 +175,6 @@ class RecepcionMineralData
             zo.nombre AS zona_origen_nombre,
             lm.correlativo,
             lm.numero_correlativo,
-            lm.tipo_carga,
             lm.numero_contacto,
             lm.tipo_producto,
             lm.tipo_mineral,
@@ -265,7 +259,6 @@ class RecepcionMineralData
             CONCAT(c.nombre, " ", c.apellido) AS conductor_nombre_completo,
             c.dni AS conductor_dni,
             ru.tipo_ingreso,
-            ru.tipo_carga,
             ru.segunda_placa,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
@@ -276,8 +269,8 @@ class RecepcionMineralData
             ru.estado,
             ru.estado_salida,
             ru.estado_pesaje,
-            ru.validacion_datos,
-            ru.id_sucursal AS id_sucursal
+            ru.id_sucursal AS id_sucursal,
+            ru.es_recepcion_ficticia
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -294,9 +287,6 @@ class RecepcionMineralData
         if ($item) {
             if (isset($item->evidencias)) {
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
-            }
-            if (isset($item->validacion_datos)) {
-                $item->validacion_datos = json_decode($item->validacion_datos, true) ?? [];
             }
             $item->lotes = self::get_lotes_by_recepcion($id);
 
@@ -317,7 +307,6 @@ class RecepcionMineralData
             lm.id_recepcion_unidad,
             lm.correlativo AS lote_correlativo,
             lm.numero_correlativo AS lote_numero_correlativo,
-            lm.tipo_carga AS lote_tipo_carga,
             lm.numero_contacto AS lote_numero_contacto,
             lm.tipo_producto AS lote_tipo_producto,
             lm.tipo_mineral AS lote_tipo_mineral,
@@ -489,7 +478,6 @@ class RecepcionMineralData
             vh.placa AS placa,
             
             lot.tipo_producto,
-            lot.tipo_carga,
             lot.tipo_mineral,
             
             CONCAT(COALESCE(gui.serie_guia_remitente, ''), IF(gui.serie_guia_remitente IS NOT NULL AND gui.serie_guia_remitente != '', '-', ''), COALESCE(gui.numero_guia_remitente, '')) AS guia_remision,

@@ -33,7 +33,6 @@ class RecepcionUnidadesData
             c.dni AS conductor_dni,
             c.numero_licencia AS conductor_numero_licencia,
             ru.tipo_ingreso,
-            ru.tipo_carga,
             ru.segunda_placa,
             ru.fecha_hora_ingreso,
             ru.evidencias,
@@ -51,10 +50,9 @@ class RecepcionUnidadesData
             CONCAT(emp_rec.nombre, " ", emp_rec.apellido) AS empleado_recepcion_nombre,
             ru.es_programacion,
             ru.fecha_estimada_llegada,
-            ru.serie_guia_remitente,
-            ru.numero_guia_remitente,
-            ru.serie_guia_transportista,
-            ru.numero_guia_transportista
+            ru.guia_remitente,
+            ru.guia_transportista,
+            ru.es_recepcion_ficticia
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -134,7 +132,6 @@ class RecepcionUnidadesData
             c.dni AS conductor_dni,
             c.numero_licencia AS conductor_numero_licencia,
             ru.tipo_ingreso,
-            ru.tipo_carga,
             ru.segunda_placa,
             ru.fecha_hora_ingreso,
             ru.evidencias,
@@ -146,7 +143,6 @@ class RecepcionUnidadesData
             ru.id_sucursal AS id_sucursal,
             ru.fecha_hora_inicio_pesaje,
             ru.fecha_hora_final_pesaje,
-            ru.validacion_datos,
             ru.estado_pesaje,
             ru.id_proveedor_minero,
             pr.razon_social AS proveedor_razon_social,
@@ -156,10 +152,9 @@ class RecepcionUnidadesData
             CONCAT(emp_rec.nombre, " ", emp_rec.apellido) AS empleado_recepcion_nombre,
             ru.es_programacion,
             ru.fecha_estimada_llegada,
-            ru.serie_guia_remitente,
-            ru.numero_guia_remitente,
-            ru.serie_guia_transportista,
-            ru.numero_guia_transportista
+            ru.guia_remitente,
+            ru.guia_transportista,
+            ru.es_recepcion_ficticia
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -180,9 +175,6 @@ class RecepcionUnidadesData
             if (isset($item->evidencias)) {
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
             }
-            if (isset($item->validacion_datos)) {
-                $item->validacion_datos = json_decode($item->validacion_datos, true) ?? [];
-            }
         }
 
         return $item ? (array) $item : null;
@@ -201,7 +193,6 @@ class RecepcionUnidadesData
             'id_conductor' => $data['id_conductor'],
             'id_proveedor_minero' => $data['id_proveedor_minero'] ?? null,
             'tipo_ingreso' => $data['tipo_ingreso'] ?? 'Recepción de Unidad',
-            'tipo_carga' => $data['tipo_carga'] ?? 'Granel',
             'segunda_placa' => $data['segunda_placa'] ?? null,
             'fecha_hora_ingreso' => now()->toDateTimeString(),
             'evidencias' => $data['evidencias'] ?? [],
@@ -209,10 +200,8 @@ class RecepcionUnidadesData
             'estado' => EstadoVisita::EnPlanta->value,
             'id_sucursal' => $data['id_sucursal'],
             'estado_pesaje' => EstadoPesaje::SinPesar->value,
-            'serie_guia_remitente' => $data['serie_guia_remitente'] ?? null,
-            'numero_guia_remitente' => $data['numero_guia_remitente'] ?? null,
-            'serie_guia_transportista' => $data['serie_guia_transportista'] ?? null,
-            'numero_guia_transportista' => $data['numero_guia_transportista'] ?? null,
+            'guia_remitente' => $data['guia_remitente'] ?? null,
+            'guia_transportista' => $data['guia_transportista'] ?? null,
         ]);
 
         return $recepcion->id;
@@ -337,11 +326,8 @@ class RecepcionUnidadesData
             ru.id_proveedor_minero,
             pr.razon_social AS proveedor_razon_social,
             ru.tipo_ingreso,
-            ru.tipo_carga,
-            ru.serie_guia_remitente,
-            ru.numero_guia_remitente,
-            ru.serie_guia_transportista,
-            ru.numero_guia_transportista,
+            ru.guia_remitente,
+            ru.guia_transportista,
             ru.fecha_estimada_llegada,
             ru.observacion,
             ru.es_programacion,
@@ -460,10 +446,8 @@ class RecepcionUnidadesData
             'id_proveedor_minero' => $data['id_proveedor_minero'] ?? null,
             'id_sucursal' => $data['id_sucursal'] ?? null,
             'tipo_ingreso' => $data['tipo_ingreso'] ?? 'Recepción de Mineral',
-            'serie_guia_remitente' => $data['serie_guia_remitente'] ?? null,
-            'numero_guia_remitente' => $data['numero_guia_remitente'] ?? null,
-            'serie_guia_transportista' => $data['serie_guia_transportista'] ?? null,
-            'numero_guia_transportista' => $data['numero_guia_transportista'] ?? null,
+            'guia_remitente' => $data['guia_remitente'] ?? null,
+            'guia_transportista' => $data['guia_transportista'] ?? null,
             'fecha_estimada_llegada' => $data['fecha_estimada_llegada'] ?? null,
             'observacion' => $data['observacion'] ?? null,
             'es_programacion' => 1,

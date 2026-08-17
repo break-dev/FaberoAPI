@@ -18,7 +18,6 @@ class LoteMineral extends Model
         'id_zona_origen',
         'correlativo',
         'numero_correlativo',
-        'tipo_carga',
         'numero_contacto',
         'tipo_producto',
         'tipo_mineral',

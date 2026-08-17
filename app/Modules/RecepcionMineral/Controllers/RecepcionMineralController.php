@@ -39,7 +39,7 @@ class RecepcionMineralController extends Controller
     public function validar_campo(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'field' => 'required|string|in:condicion_ingreso,tipo_carga,placa,empresa_transporte,tipo_vehiculo,segunda_placa,conductor,fecha_hora_ingreso',
+            'field' => 'required|string|in:condicion_ingreso,placa,empresa_transporte,tipo_vehiculo,segunda_placa,conductor,fecha_hora_ingreso',
             'value' => 'nullable',
         ]);
 
@@ -62,12 +62,23 @@ class RecepcionMineralController extends Controller
         $request->validate([
             'condicion_ingreso' => ['required', Rule::enum(CondicionIngreso::class)],
             'id_empresa' => ['required', 'integer', 'exists:empresa,id'],
+            'correlativo_manual' => 'nullable|string|max:20',
+            'numero_correlativo_manual' => 'nullable|integer|min:1',
         ]);
 
         $condicionIngreso = $request->input('condicion_ingreso');
         $idEmpresa = (int) $request->input('id_empresa');
+        $correlativoManual = $request->input('correlativo_manual');
+        $numeroCorrelativoManual = $request->input('numero_correlativo_manual');
 
-        return response()->json(RecepcionMineralService::crear_lote($id, (int) $authUser->id_empleado, $condicionIngreso, $idEmpresa));
+        return response()->json(RecepcionMineralService::crear_lote(
+            $id,
+            (int) $authUser->id_empleado,
+            $condicionIngreso,
+            $idEmpresa,
+            $correlativoManual,
+            $numeroCorrelativoManual !== null ? (int) $numeroCorrelativoManual : null,
+        ));
     }
 
     /**
@@ -87,7 +98,6 @@ class RecepcionMineralController extends Controller
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'id_zona_origen' => 'nullable|integer|exists:zona_origen,id',
             'numero_contacto' => 'nullable|string|max:50',
-            'tipo_carga' => 'required|string|max:50',
             'tipo_producto' => 'required|string|max:100',
             'tipo_mineral' => 'required|string|max:100',
             'peso_inicial' => 'required|numeric|min:0.01',
@@ -100,7 +110,6 @@ class RecepcionMineralController extends Controller
             'id_proveedor_minero' => $request->input('id_proveedor_minero'),
             'id_zona_origen' => $request->input('id_zona_origen'),
             'numero_contacto' => $request->input('numero_contacto'),
-            'tipo_carga' => $request->input('tipo_carga'),
             'tipo_producto' => $request->input('tipo_producto'),
             'tipo_mineral' => $request->input('tipo_mineral'),
             'peso_inicial' => $request->input('peso_inicial'),
@@ -132,7 +141,6 @@ class RecepcionMineralController extends Controller
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'id_zona_origen' => 'nullable|integer|exists:zona_origen,id',
             'numero_contacto' => 'nullable|string|max:50',
-            'tipo_carga' => 'nullable|string|max:50',
             'tipo_producto' => 'nullable|string|max:100',
             'tipo_mineral' => 'nullable|string|max:100',
             'peso_inicial' => 'nullable|numeric|min:0.01',
@@ -150,7 +158,6 @@ class RecepcionMineralController extends Controller
             'id_proveedor_minero' => $request->input('id_proveedor_minero'),
             'id_zona_origen' => $request->input('id_zona_origen'),
             'numero_contacto' => $request->input('numero_contacto'),
-            'tipo_carga' => $request->input('tipo_carga'),
             'tipo_producto' => $request->input('tipo_producto'),
             'tipo_mineral' => $request->input('tipo_mineral'),
             'peso_inicial' => $request->input('peso_inicial'),
@@ -234,7 +241,6 @@ class RecepcionMineralController extends Controller
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'id_zona_origen' => 'nullable|integer|exists:zona_origen,id',
             'numero_contacto' => 'nullable|string|max:50',
-            'tipo_carga' => 'required|string|max:50',
             'tipo_producto' => 'required|string|max:100',
             'tipo_mineral' => 'required|string|max:100',
             'peso_inicial' => 'nullable|numeric|min:0.01',
@@ -255,7 +261,6 @@ class RecepcionMineralController extends Controller
             'id_proveedor_minero' => $request->input('id_proveedor_minero'),
             'id_zona_origen' => $request->input('id_zona_origen'),
             'numero_contacto' => $request->input('numero_contacto'),
-            'tipo_carga' => $request->input('tipo_carga'),
             'tipo_producto' => $request->input('tipo_producto'),
             'tipo_mineral' => $request->input('tipo_mineral'),
             'peso_inicial' => $request->input('peso_inicial'),

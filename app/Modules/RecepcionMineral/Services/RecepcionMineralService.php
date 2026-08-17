@@ -60,24 +60,10 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró el registro de recepción.');
         }
 
-        $validacionDatos = $recepcion->validacion_datos ?? [
-            'condicion_ingreso' => false,
-            'tipo_carga' => false,
-            'placa' => false,
-            'empresa_transporte' => false,
-            'tipo_vehiculo' => false,
-            'segunda_placa' => false,
-            'conductor' => false,
-        ];
-
         // 1. Modificar la tabla correspondiente según el campo
         switch ($field) {
             case 'condicion_ingreso':
                 $recepcion->tipo_ingreso = $value;
-                break;
-
-            case 'tipo_carga':
-                $recepcion->tipo_carga = $value;
                 break;
 
             case 'placa':
@@ -157,9 +143,6 @@ class RecepcionMineralService
                 break;
         }
 
-        // 2. Marcar la validación de este campo como completada (true) y propagar a los lotes
-        $validacionDatos[$field] = true;
-        $recepcion->validacion_datos = $validacionDatos;
         $recepcion->save();
 
         LoteMineral::where('id_recepcion_unidad', $id)->update([
@@ -177,8 +160,14 @@ class RecepcionMineralService
     /**
      * Crear un lote vacío para una recepción de unidad
      */
-    public static function crear_lote(int $id, int $idEmpleadoRegistro, string $condicionIngreso, int $idEmpresa): array
-    {
+    public static function crear_lote(
+        int $id,
+        int $idEmpleadoRegistro,
+        string $condicionIngreso,
+        int $idEmpresa,
+        ?string $correlativoManual = null,
+        ?int $numeroCorrelativoManual = null,
+    ): array {
         $recepcion = RecepcionUnidad::find($id);
         if (! $recepcion) {
             return ApiResponse::error('No se encontró el registro de recepción.');
@@ -189,20 +178,28 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró la empresa seleccionada.');
         }
 
-        $isComercial = $condicionIngreso === CondicionIngreso::Comercializacion->value;
-        $prefijo = $isComercial ? 'FB' : 'LOT';
-        $filtros = $isComercial
-            ? ['id_empresa' => $idEmpresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
-            : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
+        // Generar correlativo y número: manual o automático
+        if ($correlativoManual !== null && $numeroCorrelativoManual !== null) {
+            $correlativo = $correlativoManual;
+            $numeroCorrelativo = $numeroCorrelativoManual;
+        } else {
+            $isComercial = $condicionIngreso === CondicionIngreso::Comercializacion->value;
+            $prefijo = $isComercial ? 'FB' : 'LOT';
+            $filtros = $isComercial
+                ? ['id_empresa' => $idEmpresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
+                : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
 
-        // Generar correlativo usando CorrelativoHelper
-        $correlativoData = CorrelativoHelper::generar(
-            tabla: 'lote_mineral',
-            prefijo: $prefijo,
-            filtros: $filtros,
-            longitudCeros: 5,
-            reseteo: Periodo::Anual
-        );
+            // Generar correlativo usando CorrelativoHelper
+            $correlativoData = CorrelativoHelper::generar(
+                tabla: 'lote_mineral',
+                prefijo: $prefijo,
+                filtros: $filtros,
+                longitudCeros: 5,
+                reseteo: Periodo::Anual
+            );
+            $correlativo = $correlativoData['correlativo'];
+            $numeroCorrelativo = $correlativoData['numero_correlativo'];
+        }
 
         // Crear automáticamente el registro en ticket_balanza al generar el lote
         $ticketId = DB::table('ticket_balanza')->insertGetId([
@@ -216,8 +213,8 @@ class RecepcionMineralService
             'id_empleado_registro' => $idEmpleadoRegistro,
             'id_empresa' => $idEmpresa,
             'condicion_ingreso' => $condicionIngreso,
-            'correlativo' => $correlativoData['correlativo'],
-            'numero_correlativo' => $correlativoData['numero_correlativo'],
+            'correlativo' => $correlativo,
+            'numero_correlativo' => $numeroCorrelativo,
             'id_ticket_balanza' => $ticketId,
             'estado_leyes' => EstadoLeyes::Pendiente->value,
             'created_at' => now()->toDateTimeString(),
@@ -270,7 +267,6 @@ class RecepcionMineralService
         $lote->id_proveedor_minero = $data['id_proveedor_minero'] ? (int) $data['id_proveedor_minero'] : null;
         $lote->id_zona_origen = $data['id_zona_origen'] ? (int) $data['id_zona_origen'] : null;
         $lote->numero_contacto = $data['numero_contacto'];
-        $lote->tipo_carga = $data['tipo_carga'];
         $lote->tipo_producto = $data['tipo_producto'];
         $lote->tipo_mineral = $data['tipo_mineral'];
         $lote->peso_inicial = (float) $data['peso_inicial'];
@@ -356,9 +352,6 @@ class RecepcionMineralService
         if (array_key_exists('numero_contacto', $data)) {
             $lote->numero_contacto = $data['numero_contacto'];
         }
-        if (array_key_exists('tipo_carga', $data)) {
-            $lote->tipo_carga = $data['tipo_carga'];
-        }
         if (array_key_exists('tipo_producto', $data)) {
             $lote->tipo_producto = $data['tipo_producto'];
         }
@@ -409,19 +402,7 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró el registro de recepción.');
         }
 
-        // Validaciones:
-        // 1. Que todos los checks de validacion_datos sean true
-        $validacionDatos = $recepcion->validacion_datos;
-        if (empty($validacionDatos)) {
-            return ApiResponse::error('No se han validado los datos de vigilancia.');
-        }
-        foreach ($validacionDatos as $key => $val) {
-            if (! $val) {
-                return ApiResponse::error("Falta validar el campo: {$key}.");
-            }
-        }
-
-        // 2. Que tenga al menos un lote y que todos los lotes tengan peso_final registrado
+        // Validación: que tenga al menos un lote y que todos los lotes tengan peso_final registrado
         $lotes = LoteMineral::where('id_recepcion_unidad', $id)->get();
         if ($lotes->isEmpty()) {
             return ApiResponse::error('Debe registrar al menos un lote de mineral para esta unidad.');
@@ -465,21 +446,12 @@ class RecepcionMineralService
             'id_tipo_vehiculo' => null,
             'id_conductor' => null,
             'tipo_ingreso' => 'Ficticio',
-            'tipo_carga' => 'Mixto',
             'segunda_placa' => null,
             'fecha_hora_ingreso' => $fechaHoraIngreso,
             'estado' => 'En Planta',
             'estado_pesaje' => 'Sin Pesar',
             'id_sucursal' => $data['id_sucursal'],
-            'validacion_datos' => [
-                'condicion_ingreso' => false,
-                'tipo_carga' => false,
-                'placa' => false,
-                'empresa_transporte' => false,
-                'tipo_vehiculo' => false,
-                'segunda_placa' => false,
-                'conductor' => false,
-            ],
+            'es_recepcion_ficticia' => true,
         ]);
 
         $nuevaRecepcion = RecepcionMineralData::get_recepcion_by_id_with_lotes($recepcion->id);
@@ -582,7 +554,6 @@ class RecepcionMineralService
                 },
             ],
             'numero_contacto' => ['nombre' => 'Número de contacto', 'tipo' => 'string'],
-            'tipo_carga' => ['nombre' => 'Tipo de carga', 'tipo' => 'string'],
             'tipo_producto' => ['nombre' => 'Tipo de producto', 'tipo' => 'string'],
             'tipo_mineral' => ['nombre' => 'Tipo de mineral', 'tipo' => 'string'],
             'peso_inicial' => ['nombre' => 'Peso inicial', 'tipo' => 'float'],
@@ -732,7 +703,6 @@ class RecepcionMineralService
         $lote->id_proveedor_minero = $data['id_proveedor_minero'] ? (int) $data['id_proveedor_minero'] : null;
         $lote->id_zona_origen = $data['id_zona_origen'] ? (int) $data['id_zona_origen'] : null;
         $lote->numero_contacto = $data['numero_contacto'];
-        $lote->tipo_carga = $data['tipo_carga'];
         $lote->tipo_producto = $data['tipo_producto'];
         $lote->tipo_mineral = $data['tipo_mineral'];
         $lote->peso_inicial = $data['peso_inicial'] !== null ? (float) $data['peso_inicial'] : null;

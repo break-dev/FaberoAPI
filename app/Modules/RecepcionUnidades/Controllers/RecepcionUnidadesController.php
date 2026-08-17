@@ -47,16 +47,13 @@ class RecepcionUnidadesController extends Controller
             'id_conductor' => 'required|integer|exists:conductor,id',
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'tipo_ingreso' => 'nullable|string|max:50',
-            'tipo_carga' => 'nullable|string|max:50',
             'segunda_placa' => 'nullable|string|max:15',
             'observacion' => 'nullable|string',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
             'id_sucursal' => 'required|integer|exists:sucursal,id',
-            'serie_guia_remitente' => 'nullable|string|max:10',
-            'numero_guia_remitente' => 'nullable|string|max:20',
-            'serie_guia_transportista' => 'nullable|string|max:10',
-            'numero_guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente' => 'nullable|string|max:20',
+            'guia_transportista' => 'nullable|string|max:20',
             'id_motivo_ingreso' => 'nullable|integer|exists:motivo_ingreso,id',
         ]);
 
@@ -73,14 +70,11 @@ class RecepcionUnidadesController extends Controller
             'id_conductor' => (int) $request->input('id_conductor'),
             'id_proveedor_minero' => $request->input('id_proveedor_minero') ? (int) $request->input('id_proveedor_minero') : null,
             'tipo_ingreso' => $request->input('tipo_ingreso', 'Recepción de Unidad'),
-            'tipo_carga' => $request->input('tipo_carga', 'Granel'),
             'segunda_placa' => $request->input('segunda_placa'),
             'observacion' => $request->input('observacion'),
             'id_sucursal' => (int) $request->input('id_sucursal'),
-            'serie_guia_remitente' => $request->input('serie_guia_remitente'),
-            'numero_guia_remitente' => $request->input('numero_guia_remitente'),
-            'serie_guia_transportista' => $request->input('serie_guia_transportista'),
-            'numero_guia_transportista' => $request->input('numero_guia_transportista'),
+            'guia_remitente' => $request->input('guia_remitente'),
+            'guia_transportista' => $request->input('guia_transportista'),
         ];
 
         // Obtener archivos subidos
@@ -216,10 +210,8 @@ class RecepcionUnidadesController extends Controller
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'id_sucursal' => 'nullable|integer|exists:sucursal,id',
             'fecha_estimada_llegada' => 'nullable|date',
-            'serie_guia_remitente' => 'nullable|string|max:10',
-            'numero_guia_remitente' => 'nullable|string|max:20',
-            'serie_guia_transportista' => 'nullable|string|max:10',
-            'numero_guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente' => 'nullable|string|max:20',
+            'guia_transportista' => 'nullable|string|max:20',
             'observacion' => 'nullable|string',
             'tipo_ingreso' => 'nullable|string|max:50',
         ]);
@@ -251,10 +243,8 @@ class RecepcionUnidadesController extends Controller
             'id_conductor' => 'nullable|integer|exists:conductor,id',
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'fecha_estimada_llegada' => 'nullable|date',
-            'serie_guia_remitente' => 'nullable|string|max:10',
-            'numero_guia_remitente' => 'nullable|string|max:20',
-            'serie_guia_transportista' => 'nullable|string|max:10',
-            'numero_guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente' => 'nullable|string|max:20',
+            'guia_transportista' => 'nullable|string|max:20',
             'observacion' => 'nullable|string',
             'tipo_ingreso' => 'nullable|string|max:50',
         ]);
@@ -295,17 +285,11 @@ class RecepcionUnidadesController extends Controller
         if ($request->input('id_empresa_transporte')) {
             $overrides['id_empresa_transporte'] = (int) $request->input('id_empresa_transporte');
         }
-        if ($request->filled('serie_guia_remitente')) {
-            $overrides['serie_guia_remitente'] = $request->input('serie_guia_remitente');
+        if ($request->filled('guia_remitente')) {
+            $overrides['guia_remitente'] = $request->input('guia_remitente');
         }
-        if ($request->filled('numero_guia_remitente')) {
-            $overrides['numero_guia_remitente'] = $request->input('numero_guia_remitente');
-        }
-        if ($request->filled('serie_guia_transportista')) {
-            $overrides['serie_guia_transportista'] = $request->input('serie_guia_transportista');
-        }
-        if ($request->filled('numero_guia_transportista')) {
-            $overrides['numero_guia_transportista'] = $request->input('numero_guia_transportista');
+        if ($request->filled('guia_transportista')) {
+            $overrides['guia_transportista'] = $request->input('guia_transportista');
         }
 
         return response()->json(RecepcionUnidadesService::confirmar_programacion($id, (int) $authUser->id_empleado, $overrides));

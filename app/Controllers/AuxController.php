@@ -392,7 +392,6 @@ class AuxController extends Controller
             lm.numero_correlativo,
             lm.tipo_producto,
             lm.tipo_mineral,
-            lm.tipo_carga,
             lm.peso_inicial,
             lm.peso_final,
             lm.peso_neto,

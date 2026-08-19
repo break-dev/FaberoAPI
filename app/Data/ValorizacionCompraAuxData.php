@@ -179,9 +179,9 @@ class ValorizacionCompraAuxData
                 gpt.numero_guia_transportista,
                 CONCAT_WS("-", gpt.serie_guia_transportista, gpt.numero_guia_transportista) AS grt,
                 gpt.fecha_en_planta,
-                COALESCE(lg.peso_neto, lm.peso_neto) AS tmh,
+                lm.peso_neto AS tmh,
                 COALESCE(lm.ley_humedad, 0) AS ley_humedad,
-                (COALESCE(lg.peso_neto, lm.peso_neto) * (1 - (COALESCE(lm.ley_humedad, 0) / 100))) AS tms,
+                (lm.peso_neto * (1 - (COALESCE(lm.ley_humedad, 0) / 100))) AS tms,
                 COALESCE(lm.ley_oro, 0) AS ley_oro,
                 COALESCE(lm.ley_plata, 0) AS ley_plata,
                 EXISTS (

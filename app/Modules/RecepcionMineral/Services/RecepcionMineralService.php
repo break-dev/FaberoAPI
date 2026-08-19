@@ -145,13 +145,6 @@ class RecepcionMineralService
 
         $recepcion->save();
 
-        LoteMineral::where('id_recepcion_unidad', $id)->update([
-            'id_vehiculo' => $recepcion->id_vehiculo,
-            'id_empresa_transporte' => $recepcion->id_empresa_transporte,
-            'id_tipo_vehiculo' => $recepcion->id_tipo_vehiculo,
-            'id_conductor' => $recepcion->id_conductor,
-        ]);
-
         $updated = RecepcionMineralData::get_recepcion_by_id_with_lotes($id);
 
         return ApiResponse::success($updated, 'Campo validado y actualizado correctamente.');
@@ -202,11 +195,21 @@ class RecepcionMineralService
         }
 
         // Crear automáticamente el registro en ticket_balanza al generar el lote
+        $correlativoTicketData = CorrelativoHelper::generar(
+            tabla: 'ticket_balanza',
+            prefijo: '',
+            filtros: [],
+            longitudCeros: 0,
+            reseteo: Periodo::Diario,
+            formatoFecha: 'dmy',
+            incluirPrefijo: false,
+        );
+
         $ticketId = DB::table('ticket_balanza')->insertGetId([
-            'numero' => null,
+            'correlativo' => $correlativoTicketData['correlativo'],
+            'numero_correlativo' => $correlativoTicketData['numero_correlativo'],
             'created_at' => now(),
         ]);
-        DB::table('ticket_balanza')->where('id', $ticketId)->update(['numero' => $ticketId]);
 
         $lote = LoteMineral::create([
             'id_recepcion_unidad' => $id,
@@ -218,10 +221,6 @@ class RecepcionMineralService
             'id_ticket_balanza' => $ticketId,
             'estado_leyes' => EstadoLeyes::Pendiente->value,
             'created_at' => now()->toDateTimeString(),
-            'id_vehiculo' => $recepcion->id_vehiculo,
-            'id_empresa_transporte' => $recepcion->id_empresa_transporte,
-            'id_tipo_vehiculo' => $recepcion->id_tipo_vehiculo,
-            'id_conductor' => $recepcion->id_conductor,
         ]);
 
         $loteDetalle = RecepcionMineralData::get_lote_by_id($lote->id);
@@ -270,26 +269,26 @@ class RecepcionMineralService
         $lote->tipo_producto = $data['tipo_producto'];
         $lote->tipo_mineral = $data['tipo_mineral'];
         $lote->peso_inicial = (float) $data['peso_inicial'];
-        $lote->observacion_peso_inicial = $data['observacion_peso_inicial'] ?? null;
         $lote->fecha_hora_peso_inicial = now()->toDateTimeString();
         $lote->evidencias = $evidenciasGuardadas;
 
-        // Heredar campos de la recepción de unidad asociada
-        $recepcion = DB::table('recepcion_unidad')->where('id', $lote->id_recepcion_unidad)->first();
-        if ($recepcion) {
-            $lote->id_vehiculo = $recepcion->id_vehiculo;
-            $lote->id_empresa_transporte = $recepcion->id_empresa_transporte;
-            $lote->id_tipo_vehiculo = $recepcion->id_tipo_vehiculo;
-            $lote->id_conductor = $recepcion->id_conductor;
-        }
-
         // Al registrar el peso inicial desde balanza, crear registro en ticket_balanza si no tiene uno
         if (! $lote->id_ticket_balanza) {
+            $correlativoTicketData = CorrelativoHelper::generar(
+                tabla: 'ticket_balanza',
+                prefijo: '',
+                filtros: [],
+                longitudCeros: 0,
+                reseteo: Periodo::Diario,
+                formatoFecha: 'dmy',
+                incluirPrefijo: false,
+            );
+
             $ticketId = DB::table('ticket_balanza')->insertGetId([
-                'numero' => null,
+                'correlativo' => $correlativoTicketData['correlativo'],
+                'numero_correlativo' => $correlativoTicketData['numero_correlativo'],
                 'created_at' => now(),
             ]);
-            DB::table('ticket_balanza')->where('id', $ticketId)->update(['numero' => $ticketId]);
             $lote->id_ticket_balanza = $ticketId;
         }
 
@@ -361,27 +360,11 @@ class RecepcionMineralService
         if (array_key_exists('peso_inicial', $data) && $data['peso_inicial'] !== null) {
             $lote->peso_inicial = (float) $data['peso_inicial'];
         }
-        if (array_key_exists('observacion_peso_inicial', $data)) {
-            $lote->observacion_peso_inicial = $data['observacion_peso_inicial'];
-        }
-        if (array_key_exists('id_vehiculo', $data) && ! empty($data['id_vehiculo'])) {
-            $lote->id_vehiculo = (int) $data['id_vehiculo'];
-        }
-        if (array_key_exists('id_empresa_transporte', $data) && ! empty($data['id_empresa_transporte'])) {
-            $lote->id_empresa_transporte = (int) $data['id_empresa_transporte'];
-        }
-        if (array_key_exists('id_tipo_vehiculo', $data) && ! empty($data['id_tipo_vehiculo'])) {
-            $lote->id_tipo_vehiculo = (int) $data['id_tipo_vehiculo'];
-        }
-        if (array_key_exists('id_conductor', $data) && ! empty($data['id_conductor'])) {
-            $lote->id_conductor = (int) $data['id_conductor'];
-        }
 
         $pesoFinal = (float) $data['peso_final'];
         $pesoInicial = (float) $lote->peso_inicial;
 
         $lote->peso_final = $pesoFinal;
-        $lote->observacion_peso_final = $data['observacion_peso_final'] ?? null;
         $lote->fecha_hora_peso_final = now()->toDateTimeString();
         $lote->peso_neto = $pesoInicial - $pesoFinal; // Peso Inicial - Peso Final
         $lote->evidencias = $evidenciasGuardadas;
@@ -557,61 +540,12 @@ class RecepcionMineralService
             'tipo_producto' => ['nombre' => 'Tipo de producto', 'tipo' => 'string'],
             'tipo_mineral' => ['nombre' => 'Tipo de mineral', 'tipo' => 'string'],
             'peso_inicial' => ['nombre' => 'Peso inicial', 'tipo' => 'float'],
-            'observacion_peso_inicial' => ['nombre' => 'Observación de peso inicial', 'tipo' => 'string'],
             'peso_final' => ['nombre' => 'Peso final (tara)', 'tipo' => 'float'],
-            'observacion_peso_final' => ['nombre' => 'Observación de peso final', 'tipo' => 'string'],
-            'id_vehiculo' => [
-                'nombre' => 'Vehículo',
-                'tipo' => 'int',
-                'coalesce_key' => 'id_vehiculo',
-                'resolver' => function ($id) {
-                    if (! $id) {
-                        return null;
-                    }
-                    $v = \DB::table('vehiculo')->where('id', $id)->first();
-                    if ($v) {
-                        return $v->placa;
-                    }
-
-                    return "ID #$id";
-                },
-            ],
-            'id_empresa_transporte' => [
-                'nombre' => 'Empresa de transporte',
-                'tipo' => 'int',
-                'coalesce_key' => 'id_empresa_transporte',
-                'resolver' => function ($id) {
-                    if (! $id) {
-                        return null;
-                    }
-                    $et = \DB::table('empresa_transporte')->where('id', $id)->first();
-
-                    return $et ? $et->razon_social : "ID #$id";
-                },
-            ],
-            'id_conductor' => [
-                'nombre' => 'Conductor',
-                'tipo' => 'int',
-                'coalesce_key' => 'id_conductor',
-                'resolver' => function ($id) {
-                    if (! $id) {
-                        return null;
-                    }
-                    $c = \DB::table('conductor')->where('id', $id)->first();
-
-                    return $c ? trim($c->nombre.' '.$c->apellido) : "ID #$id";
-                },
-            ],
         ];
 
         foreach ($camposAuditar as $campoBd => $meta) {
             $valAnt = $lote->$campoBd;
             $valNue = $data[$campoBd];
-
-            if ($valAnt === null && isset($meta['coalesce_key']) && $ru) {
-                $coalesceCol = $meta['coalesce_key'];
-                $valAnt = $ru->$coalesceCol;
-            }
 
             // Normalizar tipos para la comparación
             if ($meta['tipo'] === 'int') {
@@ -706,33 +640,14 @@ class RecepcionMineralService
         $lote->tipo_producto = $data['tipo_producto'];
         $lote->tipo_mineral = $data['tipo_mineral'];
         $lote->peso_inicial = $data['peso_inicial'] !== null ? (float) $data['peso_inicial'] : null;
-        $lote->observacion_peso_inicial = $data['observacion_peso_inicial'] ?? null;
 
         $lote->peso_final = $data['peso_final'] !== null ? (float) $data['peso_final'] : null;
-        $lote->observacion_peso_final = $data['observacion_peso_final'] ?? null;
 
         // Calcular peso neto si ambos pesos existen
         if ($lote->peso_inicial !== null && $lote->peso_final !== null) {
             $lote->peso_neto = $lote->peso_inicial - $lote->peso_final;
         } else {
             $lote->peso_neto = null;
-        }
-
-        // Vehículo, conductor y transporte
-        $lote->id_vehiculo = $data['id_vehiculo'] ? (int) $data['id_vehiculo'] : null;
-        $lote->id_empresa_transporte = $data['id_empresa_transporte'] ? (int) $data['id_empresa_transporte'] : null;
-        $lote->id_conductor = $data['id_conductor'] ? (int) $data['id_conductor'] : null;
-
-        // Heredar el id_tipo_vehiculo del vehículo seleccionado
-        if ($lote->id_vehiculo) {
-            $vehiculo = Vehiculo::find($lote->id_vehiculo);
-            if ($vehiculo) {
-                $lote->id_tipo_vehiculo = $vehiculo->id_tipo_vehiculo;
-            } else {
-                $lote->id_tipo_vehiculo = null;
-            }
-        } else {
-            $lote->id_tipo_vehiculo = null;
         }
 
         $lote->evidencias = $evidenciasGuardadas;

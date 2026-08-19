@@ -6,4 +6,5 @@ enum EstadoBase: string
 {
     case Activo = 'Activo';
     case Inactivo = 'Inactivo';
+    case Eliminado = 'Eliminado';
 }

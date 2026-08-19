@@ -11,7 +11,8 @@ class TicketBalanza extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'numero',
+        'numero_correlativo',
+        'correlativo',
         'created_at',
     ];
 }

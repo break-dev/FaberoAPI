@@ -16,7 +16,9 @@ class CorrelativoHelper
         Periodo $reseteo = Periodo::Anual,
         string $columnaFecha = 'created_at',
         ?Closure $queryModifier = null,
-        ?string $alias = null
+        ?string $alias = null,
+        ?string $formatoFecha = null,
+        bool $incluirPrefijo = true
     ): array {
         // Configuramos la tabla principal con su alias en el constructor de la consulta
         $tablaQuery = $alias ? "{$tabla} as {$alias}" : $tabla;
@@ -93,16 +95,19 @@ class CorrelativoHelper
         $numeroFormateado = str_pad($siguienteNumero, $longitudCeros, '0', STR_PAD_LEFT);
 
         $segmentoFecha = match ($reseteo) {
-            Periodo::Diario => $now->format('d').'-'.$now->format('m').'-'.$now->format('y'),
+            Periodo::Diario => $formatoFecha !== null ? $now->format($formatoFecha) : $now->format('d').'-'.$now->format('m').'-'.$now->format('y'),
             Periodo::Semanal => $now->weekOfMonth.'-'.$now->format('m').'-'.$now->format('y'),
             Periodo::Mensual => $now->format('m').'-'.$now->format('y'),
             Periodo::Anual => $now->format('y'),
             Periodo::Ninguno => null,
         };
 
-        $correlativo = $segmentoFecha
-            ? "{$segmentoFecha}-{$prefijo}-{$numeroFormateado}"
-            : "{$numeroFormateado}-{$prefijo}";
+        $correlativo = match (true) {
+            $segmentoFecha === null && $incluirPrefijo => "{$numeroFormateado}-{$prefijo}",
+            $segmentoFecha === null                    => $numeroFormateado,
+            $incluirPrefijo                            => "{$segmentoFecha}-{$prefijo}-{$numeroFormateado}",
+            default                                    => "{$segmentoFecha}-{$numeroFormateado}",
+        };
 
         return [
             'correlativo' => $correlativo,

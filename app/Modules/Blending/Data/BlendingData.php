@@ -26,7 +26,7 @@ class BlendingData
                 emp.razon_social AS empresa_nombre,
                 p.id AS id_proveedor,
                 p.razon_social AS proveedor_nombre,
-                COALESCE(lg.peso_actual, lg.peso_neto) AS tmh_disponible,
+                COALESCE(lm.peso_actual, lm.peso_neto) AS tmh_disponible,
                 COALESCE(lm.ley_humedad, 0) AS ley_humedad,
                 COALESCE(lm.ley_oro, 0) AS ley_oro,
                 COALESCE(lm.ley_plata, 0) AS ley_plata
@@ -38,7 +38,7 @@ class BlendingData
             INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
             INNER JOIN comprobante_compra cc ON cc.id_valorizacion_compra = vc.id
             WHERE cc.estado = "Pagado"
-              AND COALESCE(lg.peso_actual, lg.peso_neto) > 0
+              AND COALESCE(lm.peso_actual, lm.peso_neto) > 0
         ';
 
         $paramsLotes = [];

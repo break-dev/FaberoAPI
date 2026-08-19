@@ -584,4 +584,31 @@ class AuxController extends Controller
 
         return response()->json(\App\Modules\CuentasBancariasEmpresa\Services\CuentasBancariasEmpresaService::get_cuentas_bancarias_por_moneda($moneda, $esParaDetraccion));
     }
+
+    /**
+     * Actualizar la capacidad (TN) de un vehiculo.
+     */
+    public function update_capacidad_vehiculo(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'capacidad' => 'required|numeric|min:0',
+        ]);
+
+        $vehiculo = DB::table('vehiculo')->where('id', $id)->first();
+        if (! $vehiculo) {
+            return response()->json(ApiResponse::error('No se encontró el vehículo.', 404));
+        }
+
+        DB::table('vehiculo')->where('id', $id)->update([
+            'capacidad' => (float) $request->input('capacidad'),
+        ]);
+
+        $actualizado = DB::table('vehiculo')->where('id', $id)->first();
+
+        return response()->json(ApiResponse::success([
+            'id' => (int) $actualizado->id,
+            'placa' => $actualizado->placa,
+            'capacidad' => (float) $actualizado->capacidad,
+        ], 'Capacidad del vehículo actualizada correctamente.'));
+    }
 }

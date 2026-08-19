@@ -14,21 +14,13 @@ class LoteGuia extends Model
     protected $fillable = [
         'id_guia_primer_tramo',
         'id_lote_mineral',
-        'peso_bruto',
-        'tara',
-        'peso_neto',
-        'peso_actual',
-        'log_cambios',
+        'id_particion_lote_mineral',
     ];
 
     protected $casts = [
         'id_guia_primer_tramo' => 'integer',
         'id_lote_mineral' => 'integer',
-        'peso_bruto' => 'float',
-        'tara' => 'float',
-        'peso_neto' => 'float',
-        'peso_actual' => 'float',
-        'log_cambios' => 'array',
+        'id_particion_lote_mineral' => 'integer',
     ];
 
     public function loteMineral(): BelongsTo

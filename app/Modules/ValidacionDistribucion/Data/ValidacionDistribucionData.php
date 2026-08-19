@@ -1,0 +1,319 @@
+<?php
+
+namespace App\Modules\ValidacionDistribucion\Data;
+
+use Illuminate\Support\Facades\DB;
+
+class ValidacionDistribucionData
+{
+    /**
+     * Listar todos los lotes pendientes de partición.
+     * El campo "excedente" (peso_neto - capacidad) es informativo: no bloquea el flujo.
+     *
+     * @param  array{id_sucursal?: int|null, fecha_inicio?: string|null, fecha_fin?: string|null}  $filtros
+     * @return array<int, object>
+     */
+    public static function get_lotes_pendientes(array $filtros): array
+    {
+        $sql = '
+            SELECT
+                lm.id AS id_lote_mineral,
+                lm.correlativo AS lote_correlativo,
+                lm.peso_neto AS lote_peso_neto,
+                lm.peso_final AS lote_peso_final,
+                lm.peso_inicial AS lote_peso_inicial,
+                lm.fecha_hora_peso_inicial AS lote_fecha_peso_inicial,
+                lm.fecha_hora_peso_final AS lote_fecha_peso_final,
+                lm.tiene_particion,
+                ru.id AS id_recepcion_unidad,
+                v.id AS id_vehiculo,
+                v.placa AS vehiculo_placa,
+                v.capacidad AS vehiculo_capacidad,
+                (lm.peso_neto - v.capacidad) AS excedente,
+                lm.created_at AS lote_fecha_creacion
+            FROM lote_mineral lm
+            INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
+            INNER JOIN vehiculo v ON v.id = ru.id_vehiculo
+            WHERE 1 = 1
+        ';
+
+        $params = [];
+
+        if (! empty($filtros['id_sucursal'])) {
+            $sql .= ' AND ru.id_sucursal = :id_sucursal';
+            $params['id_sucursal'] = (int) $filtros['id_sucursal'];
+        }
+        if (! empty($filtros['fecha_inicio'])) {
+            $sql .= ' AND DATE(lm.created_at) >= :fecha_inicio';
+            $params['fecha_inicio'] = $filtros['fecha_inicio'];
+        }
+        if (! empty($filtros['fecha_fin'])) {
+            $sql .= ' AND DATE(lm.created_at) <= :fecha_fin';
+            $params['fecha_fin'] = $filtros['fecha_fin'];
+        }
+
+        $sql .= ' ORDER BY lm.created_at DESC LIMIT 200';
+
+        $rows = DB::select($sql, $params);
+
+        return array_map(function ($r) {
+            $r->id_lote_mineral = (int) $r->id_lote_mineral;
+            $r->lote_peso_neto = (float) ($r->lote_peso_neto ?? 0);
+            $r->lote_peso_final = (float) ($r->lote_peso_final ?? 0);
+            $r->lote_peso_inicial = (float) ($r->lote_peso_inicial ?? 0);
+            $r->tiene_particion = (bool) $r->tiene_particion;
+            $r->id_recepcion_unidad = $r->id_recepcion_unidad !== null ? (int) $r->id_recepcion_unidad : null;
+            $r->id_vehiculo = $r->id_vehiculo !== null ? (int) $r->id_vehiculo : null;
+            $r->vehiculo_capacidad = $r->vehiculo_capacidad !== null ? (float) $r->vehiculo_capacidad : null;
+            $r->excedente = $r->excedente !== null ? (float) $r->excedente : null;
+
+            return $r;
+        }, $rows);
+    }
+
+    /**
+     * Obtener un lote por id con datos de vehiculo y resumen de particiones.
+     */
+    public static function get_lote_con_vehiculo(int $idLote): ?object
+    {
+        $sql = '
+            SELECT
+                lm.id AS id_lote_mineral,
+                lm.correlativo AS lote_correlativo,
+                lm.peso_neto AS lote_peso_neto,
+                lm.tiene_particion,
+                ru.id AS id_recepcion_unidad,
+                v.id AS id_vehiculo,
+                v.placa AS vehiculo_placa,
+                v.capacidad AS vehiculo_capacidad,
+                (lm.peso_neto - v.capacidad) AS excedente
+            FROM lote_mineral lm
+            INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
+            INNER JOIN vehiculo v ON v.id = ru.id_vehiculo
+            WHERE lm.id = :id
+            LIMIT 1
+        ';
+
+        $row = DB::selectOne($sql, ['id' => $idLote]);
+        return $row ?: null;
+    }
+
+    /**
+     * Verifica si la columna `es_bloqueado` existe en la tabla.
+     * Usado para queries defensivas ante migraciones parciales.
+     */
+    public static function has_column_es_bloqueado(): bool
+    {
+        $rows = DB::select(
+            "SELECT COUNT(*) AS c
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'particion_lote_mineral'
+               AND COLUMN_NAME = 'es_bloqueado'"
+        );
+
+        return ((int) ($rows[0]->c ?? 0)) > 0;
+    }
+
+    /**
+     * Listar todas las particiones de un lote, ordenadas por letra/numero.
+     *
+     * @return array<int, object>
+     */
+    public static function get_particiones(int $idLote): array
+    {
+        $bloqueadoExpr = self::has_column_es_bloqueado()
+            ? 'plm.es_bloqueado'
+            : '0 AS es_bloqueado';
+
+        $sql = "
+            SELECT
+                plm.id,
+                plm.id_lote_mineral,
+                plm.id_ticket_balanza,
+                plm.id_recepcion_unidad,
+                plm.correlativo,
+                plm.particion,
+                plm.peso_inicial,
+                plm.fecha_hora_peso_inicial,
+                plm.peso_final,
+                plm.fecha_hora_peso_final,
+                plm.peso_neto,
+                plm.estado,
+                {$bloqueadoExpr},
+                tb.correlativo AS ticket_correlativo,
+                ru.id_vehiculo,
+                ru.id_conductor,
+                ru.id_sucursal,
+                ru.id_empresa_transporte,
+                ru.id_tipo_vehiculo,
+                ru.id_proveedor_minero,
+                ru.fecha_hora_ingreso,
+                v.placa AS vehiculo_placa,
+                v.tara AS vehiculo_tara,
+                v.capacidad AS vehiculo_capacidad
+            FROM particion_lote_mineral plm
+            LEFT JOIN ticket_balanza tb ON tb.id = plm.id_ticket_balanza
+            LEFT JOIN recepcion_unidad ru ON ru.id = plm.id_recepcion_unidad
+            LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+            WHERE plm.id_lote_mineral = :id_lote
+            ORDER BY plm.id ASC
+        ";
+
+        $rows = DB::select($sql, ['id_lote' => $idLote]);
+
+        return array_map(function ($r) {
+            $r->id = (int) $r->id;
+            $r->id_lote_mineral = (int) $r->id_lote_mineral;
+            $r->id_ticket_balanza = $r->id_ticket_balanza !== null ? (int) $r->id_ticket_balanza : null;
+            $r->id_recepcion_unidad = $r->id_recepcion_unidad !== null ? (int) $r->id_recepcion_unidad : null;
+            $r->peso_inicial = (float) ($r->peso_inicial ?? 0);
+            $r->peso_final = (float) ($r->peso_final ?? 0);
+            $r->peso_neto = (float) ($r->peso_neto ?? 0);
+            $r->es_bloqueado = (bool) $r->es_bloqueado;
+            $r->id_vehiculo = $r->id_vehiculo !== null ? (int) $r->id_vehiculo : null;
+            $r->id_conductor = $r->id_conductor !== null ? (int) $r->id_conductor : null;
+            $r->id_sucursal = $r->id_sucursal !== null ? (int) $r->id_sucursal : null;
+            $r->id_empresa_transporte = $r->id_empresa_transporte !== null ? (int) $r->id_empresa_transporte : null;
+            $r->id_tipo_vehiculo = $r->id_tipo_vehiculo !== null ? (int) $r->id_tipo_vehiculo : null;
+            $r->id_proveedor_minero = $r->id_proveedor_minero !== null ? (int) $r->id_proveedor_minero : null;
+            $r->vehiculo_tara = $r->vehiculo_tara !== null ? (float) $r->vehiculo_tara : null;
+            $r->vehiculo_capacidad = $r->vehiculo_capacidad !== null ? (float) $r->vehiculo_capacidad : null;
+
+            return $r;
+        }, $rows);
+    }
+
+    /**
+     * Suma de peso_neto de particiones de un lote.
+     */
+    public static function get_suma_peso_neto_particiones(int $idLote): float
+    {
+        $sum = DB::table('particion_lote_mineral')
+            ->where('id_lote_mineral', $idLote)
+            ->sum('peso_neto');
+
+        return (float) ($sum ?? 0);
+    }
+
+    /**
+     * Contar particiones existentes de un lote.
+     */
+    public static function count_particiones(int $idLote): int
+    {
+        return (int) DB::table('particion_lote_mineral')
+            ->where('id_lote_mineral', $idLote)
+            ->count();
+    }
+
+    /**
+     * Devuelve la siguiente letra de particion (A, B, C, ..., Z, AA, AB, ...).
+     */
+    public static function get_siguiente_letra_particion(int $idLote): string
+    {
+        $count = self::count_particiones($idLote);
+
+        $letra = '';
+        $n = $count;
+        $n++;
+        while ($n > 0) {
+            $n--;
+            $letra = chr(65 + ($n % 26)) . $letra;
+            $n = intdiv($n, 26);
+        }
+
+        return $letra;
+    }
+
+    /**
+     * Obtener la información completa para el Ticket de Balanza de una partición en formato PDF.
+     */
+    public static function get_ticket_balanza_particion(int $idParticion): ?array
+    {
+        $sql = "
+        SELECT
+            plm.id_lote_mineral AS id_lote,
+            plm.correlativo AS correlativo,
+            tb.id AS ticket_numero,
+            tb.created_at AS fecha_impresion,
+            
+            vh.placa AS placa,
+            
+            lot.tipo_producto,
+            lot.tipo_mineral,
+            
+            CONCAT(COALESCE(gui.serie_guia_remitente, ''), IF(gui.serie_guia_remitente IS NOT NULL AND gui.serie_guia_remitente != '', '-', ''), COALESCE(gui.numero_guia_remitente, '')) AS guia_remision,
+            
+            pr.ruc AS ruc_proveedor,
+            pr.razon_social AS proveedor,
+            
+            CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, '')) AS conductor,
+            cnd.numero_licencia AS licencia_conductor,
+            
+            emp.razon_social AS empresa_transporte,
+            
+            CONCAT(COALESCE(gui.serie_guia_transportista, ''), IF(gui.serie_guia_transportista IS NOT NULL AND gui.serie_guia_transportista != '', '-', ''), COALESCE(gui.numero_guia_transportista, '')) AS guia_transporte,
+            
+            sc.nombre AS nombre_sucursal,
+            sc.direccion AS direccion_sucursal,
+            dep_sc.nombre AS departamento_sucursal,
+            prv_sc.nombre AS provincia_sucursal,
+            dis_sc.nombre AS distrito_sucursal,
+            
+            cns_origen.nombre          AS nombre_concesion,
+            cns_origen.codigo_reinfo   AS codigo_reinfo_concesion,
+            dep_cori.nombre            AS departamento_concesion,
+            prv_cori.nombre            AS provincia_concesion,
+            dis_cori.nombre            AS distrito_concesion,
+            zo.nombre AS zona_origen_nombre,
+            
+            NULL AS observacion_peso_inicial,
+            NULL AS observacion_peso_final,
+
+            plm.fecha_hora_peso_inicial,
+            plm.peso_inicial AS peso_bruto,
+            plm.fecha_hora_peso_final,
+            plm.peso_final AS peso_tara,
+            plm.peso_neto AS peso_neto,
+
+            CONCAT(COALESCE(eml.apellido, ''), ' ', COALESCE(eml.nombre, '')) AS operador,
+            eml.dni AS dni_operador,
+            cr.nombre AS cargo_operador
+
+        FROM particion_lote_mineral plm
+        INNER JOIN lote_mineral lot ON lot.id = plm.id_lote_mineral
+        LEFT JOIN ticket_balanza tb ON tb.id = plm.id_ticket_balanza
+        LEFT JOIN lote_guia ltg ON ltg.id_lote_mineral = lot.id
+        LEFT JOIN guia_primer_tramo gui ON gui.id = ltg.id_guia_primer_tramo
+        LEFT JOIN recepcion_unidad rec ON rec.id = plm.id_recepcion_unidad
+        LEFT JOIN vehiculo vh ON vh.id = COALESCE(rec.id_vehiculo, gui.id_vehiculo)
+        LEFT JOIN proveedor pr ON pr.id = COALESCE(rec.id_proveedor_minero, gui.id_proveedor, lot.id_proveedor_minero)
+        LEFT JOIN conductor cnd ON cnd.id = COALESCE(rec.id_conductor, gui.id_conductor)
+        LEFT JOIN empresa_transporte emp ON emp.id = COALESCE(rec.id_empresa_transporte, gui.id_empresa_transporte)
+        LEFT JOIN sucursal sc ON sc.id = COALESCE(rec.id_sucursal, gui.id_sucursal)
+        LEFT JOIN departamento dep_sc ON dep_sc.id = sc.id_departamento
+        LEFT JOIN provincia prv_sc ON prv_sc.id = sc.id_provincia
+        LEFT JOIN distrito dis_sc ON dis_sc.id = sc.id_distrito
+        LEFT JOIN concesion cns_origen ON cns_origen.id = gui.id_concesion
+        LEFT JOIN departamento dep_cori ON dep_cori.id = cns_origen.id_departamento
+        LEFT JOIN provincia    prv_cori ON prv_cori.id = cns_origen.id_provincia
+        LEFT JOIN distrito     dis_cori ON dis_cori.id = cns_origen.id_distrito
+        LEFT JOIN zona_origen zo ON zo.id = lot.id_zona_origen
+        LEFT JOIN empleado eml ON eml.id = rec.id_empleado_recepcion
+        LEFT JOIN cargo cr ON cr.id = eml.id_cargo
+        WHERE plm.id = :id_particion
+        LIMIT 1
+        ";
+
+        $item = DB::selectOne($sql, ['id_particion' => $idParticion]);
+        if ($item) {
+            $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
+            $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;
+            $item->peso_neto = $item->peso_neto !== null ? (float) $item->peso_neto : null;
+
+            return (array) $item;
+        }
+
+        return null;
+    }
+}

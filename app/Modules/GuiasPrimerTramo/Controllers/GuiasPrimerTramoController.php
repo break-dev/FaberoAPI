@@ -98,12 +98,6 @@ class GuiasPrimerTramoController extends Controller
             if (empty($lote['id_lote_mineral']) || ! is_numeric($lote['id_lote_mineral'])) {
                 return response()->json(ApiResponse::error("Lote {$idx}: id_lote_mineral es requerido."), 422);
             }
-            if (! isset($lote['peso_bruto']) || ! is_numeric($lote['peso_bruto']) || (float) $lote['peso_bruto'] < 0) {
-                return response()->json(ApiResponse::error("Lote {$idx}: peso_bruto inválido."), 422);
-            }
-            if (! isset($lote['tara']) || ! is_numeric($lote['tara']) || (float) $lote['tara'] < 0) {
-                return response()->json(ApiResponse::error("Lote {$idx}: tara inválida."), 422);
-            }
             // Validar existencia del lote
             $exists = DB::table('lote_mineral')->where('id', (int) $lote['id_lote_mineral'])->exists();
             if (! $exists) {
@@ -191,12 +185,6 @@ class GuiasPrimerTramoController extends Controller
             }
             if (empty($lote['id_lote_mineral']) || ! is_numeric($lote['id_lote_mineral'])) {
                 return response()->json(ApiResponse::error("Lote {$idx}: id_lote_mineral es requerido."), 422);
-            }
-            if (! isset($lote['peso_bruto']) || ! is_numeric($lote['peso_bruto']) || (float) $lote['peso_bruto'] < 0) {
-                return response()->json(ApiResponse::error("Lote {$idx}: peso_bruto inválido."), 422);
-            }
-            if (! isset($lote['tara']) || ! is_numeric($lote['tara']) || (float) $lote['tara'] < 0) {
-                return response()->json(ApiResponse::error("Lote {$idx}: tara inválida."), 422);
             }
             // Validar existencia del lote
             $exists = DB::table('lote_mineral')->where('id', (int) $lote['id_lote_mineral'])->exists();

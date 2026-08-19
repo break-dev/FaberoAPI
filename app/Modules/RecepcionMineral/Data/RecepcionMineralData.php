@@ -103,19 +103,20 @@ class RecepcionMineralData
             lm.evidencias,
             lm.peso_inicial,
             lm.fecha_hora_peso_inicial,
-            lm.observacion_peso_inicial,
             lm.peso_final,
             lm.fecha_hora_peso_final,
-            lm.observacion_peso_final,
             lm.peso_neto,
-            COALESCE(lm.id_vehiculo, ru.id_vehiculo) AS id_vehiculo,
+            lm.peso_actual,
+            lm.tiene_particion,
+            lm.estado,
+            ru.id_vehiculo,
             v_lote.placa AS vehiculo_placa,
             NULL AS vehiculo_serie,
-            COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte) AS id_empresa_transporte,
+            ru.id_empresa_transporte,
             et_lote.razon_social AS empresa_transporte_razon_social,
-            COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo) AS id_tipo_vehiculo,
+            ru.id_tipo_vehiculo,
             tv_lote.nombre AS tipo_vehiculo_nombre,
-            COALESCE(lm.id_conductor, ru.id_conductor) AS id_conductor,
+            ru.id_conductor,
             CONCAT(c_lote.nombre, " ", c_lote.apellido) AS conductor_nombre_completo,
             c_lote.dni AS conductor_dni,
             lm.created_at
@@ -126,10 +127,10 @@ class RecepcionMineralData
         LEFT JOIN empresa emp_tit ON emp_tit.id = lm.id_empresa
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
-        LEFT JOIN vehiculo v_lote ON v_lote.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)
-        LEFT JOIN empresa_transporte et_lote ON et_lote.id = COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte)
-        LEFT JOIN tipo_vehiculo tv_lote ON tv_lote.id = COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo)
-        LEFT JOIN conductor c_lote ON c_lote.id = COALESCE(lm.id_conductor, ru.id_conductor)
+        LEFT JOIN vehiculo v_lote ON v_lote.id = ru.id_vehiculo
+        LEFT JOIN empresa_transporte et_lote ON et_lote.id = ru.id_empresa_transporte
+        LEFT JOIN tipo_vehiculo tv_lote ON tv_lote.id = ru.id_tipo_vehiculo
+        LEFT JOIN conductor c_lote ON c_lote.id = ru.id_conductor
         WHERE
             lm.id_recepcion_unidad = :recepcion_unidad_id
         ORDER BY lm.correlativo ASC
@@ -145,6 +146,8 @@ class RecepcionMineralData
             $item->peso_inicial = $item->peso_inicial !== null ? (float) $item->peso_inicial : null;
             $item->peso_final = $item->peso_final !== null ? (float) $item->peso_final : null;
             $item->peso_neto = $item->peso_neto !== null ? (float) $item->peso_neto : null;
+            $item->peso_actual = $item->peso_actual !== null ? (float) $item->peso_actual : null;
+            $item->tiene_particion = $item->tiene_particion !== null ? (bool) $item->tiene_particion : false;
             $item->id_vehiculo = $item->id_vehiculo !== null ? (int) $item->id_vehiculo : null;
             $item->id_empresa_transporte = $item->id_empresa_transporte !== null ? (int) $item->id_empresa_transporte : null;
             $item->id_tipo_vehiculo = $item->id_tipo_vehiculo !== null ? (int) $item->id_tipo_vehiculo : null;
@@ -183,19 +186,20 @@ class RecepcionMineralData
             lm.evidencias,
             lm.peso_inicial,
             lm.fecha_hora_peso_inicial,
-            lm.observacion_peso_inicial,
             lm.peso_final,
             lm.fecha_hora_peso_final,
-            lm.observacion_peso_final,
             lm.peso_neto,
-            COALESCE(lm.id_vehiculo, ru.id_vehiculo) AS id_vehiculo,
+            lm.peso_actual,
+            lm.tiene_particion,
+            lm.estado,
+            ru.id_vehiculo,
             v_lote.placa AS vehiculo_placa,
             NULL AS vehiculo_serie,
-            COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte) AS id_empresa_transporte,
+            ru.id_empresa_transporte,
             et_lote.razon_social AS empresa_transporte_razon_social,
-            COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo) AS id_tipo_vehiculo,
+            ru.id_tipo_vehiculo,
             tv_lote.nombre AS tipo_vehiculo_nombre,
-            COALESCE(lm.id_conductor, ru.id_conductor) AS id_conductor,
+            ru.id_conductor,
             CONCAT(c_lote.nombre, " ", c_lote.apellido) AS conductor_nombre_completo,
             c_lote.dni AS conductor_dni,
             c_lote.numero_licencia AS conductor_licencia,
@@ -207,10 +211,10 @@ class RecepcionMineralData
         LEFT JOIN empresa emp_tit ON emp_tit.id = lm.id_empresa
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
-        LEFT JOIN vehiculo v_lote ON v_lote.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)
-        LEFT JOIN empresa_transporte et_lote ON et_lote.id = COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte)
-        LEFT JOIN tipo_vehiculo tv_lote ON tv_lote.id = COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo)
-        LEFT JOIN conductor c_lote ON c_lote.id = COALESCE(lm.id_conductor, ru.id_conductor)
+        LEFT JOIN vehiculo v_lote ON v_lote.id = ru.id_vehiculo
+        LEFT JOIN empresa_transporte et_lote ON et_lote.id = ru.id_empresa_transporte
+        LEFT JOIN tipo_vehiculo tv_lote ON tv_lote.id = ru.id_tipo_vehiculo
+        LEFT JOIN conductor c_lote ON c_lote.id = ru.id_conductor
         WHERE
             lm.id = :id
         LIMIT 1
@@ -226,6 +230,8 @@ class RecepcionMineralData
             $item->peso_inicial = $item->peso_inicial !== null ? (float) $item->peso_inicial : null;
             $item->peso_final = $item->peso_final !== null ? (float) $item->peso_final : null;
             $item->peso_neto = $item->peso_neto !== null ? (float) $item->peso_neto : null;
+            $item->peso_actual = $item->peso_actual !== null ? (float) $item->peso_actual : null;
+            $item->tiene_particion = $item->tiene_particion !== null ? (bool) $item->tiene_particion : false;
             $item->id_vehiculo = $item->id_vehiculo !== null ? (int) $item->id_vehiculo : null;
             $item->id_empresa_transporte = $item->id_empresa_transporte !== null ? (int) $item->id_empresa_transporte : null;
             $item->id_tipo_vehiculo = $item->id_tipo_vehiculo !== null ? (int) $item->id_tipo_vehiculo : null;
@@ -312,53 +318,54 @@ class RecepcionMineralData
             lm.tipo_mineral AS lote_tipo_mineral,
             lm.peso_inicial,
             lm.fecha_hora_peso_inicial,
-            lm.observacion_peso_inicial,
             lm.peso_final,
             lm.fecha_hora_peso_final,
-            lm.observacion_peso_final,
             lm.peso_neto,
+            lm.peso_actual,
+            lm.tiene_particion,
+            lm.estado,
             lm.created_at AS lote_fecha_creacion,
             lm.evidencias AS lote_evidencias,
             lm.condicion_ingreso AS lote_condicion_ingreso,
             lm.log_cambios AS lote_log_cambios,
-            
+
             ru.tipo_ingreso,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
             ru.segunda_placa,
             ru.estado_pesaje,
-            
-            COALESCE(lm.id_vehiculo, ru.id_vehiculo) AS id_vehiculo,
+
+            ru.id_vehiculo,
             v.placa AS vehiculo_placa,
             NULL AS vehiculo_serie,
-            
-            COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte) AS id_empresa_transporte,
+
+            ru.id_empresa_transporte,
             et.razon_social AS empresa_transporte_razon_social,
-            
-            COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo) AS id_tipo_vehiculo,
+
+            ru.id_tipo_vehiculo,
             tv.nombre AS tipo_vehiculo_nombre,
-            
+
             p.id AS id_proveedor,
             p.razon_social AS proveedor_razon_social,
-            
+
             zo.id AS id_zona_origen,
             zo.nombre AS zona_origen_nombre,
 
-            COALESCE(lm.id_conductor, ru.id_conductor) AS id_conductor,
+            ru.id_conductor,
             CONCAT(c.nombre, " ", c.apellido) AS conductor_nombre_completo,
             c.dni AS conductor_dni,
             c.numero_licencia AS conductor_licencia,
-            
+
             CONCAT(emp_reg.nombre, " ", emp_reg.apellido) AS empleado_registro_nombre
         FROM
             lote_mineral lm
         INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
-        LEFT JOIN vehiculo v ON v.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)
-        LEFT JOIN empresa_transporte et ON et.id = COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte)
-        LEFT JOIN tipo_vehiculo tv ON tv.id = COALESCE(lm.id_tipo_vehiculo, ru.id_tipo_vehiculo)
+        LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+        LEFT JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
+        LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
-        LEFT JOIN conductor c ON c.id = COALESCE(lm.id_conductor, ru.id_conductor)
+        LEFT JOIN conductor c ON c.id = ru.id_conductor
         LEFT JOIN empleado emp_reg ON emp_reg.id = lm.id_empleado_registro
         WHERE
             ru.id_sucursal = :id_sucursal
@@ -396,7 +403,7 @@ class RecepcionMineralData
         }
 
         if (! empty($filters['id_empresa_transporte'])) {
-            $sql .= ' AND COALESCE(lm.id_empresa_transporte, ru.id_empresa_transporte) = :id_empresa_transporte';
+            $sql .= ' AND ru.id_empresa_transporte = :id_empresa_transporte';
             $params['id_empresa_transporte'] = (int) $filters['id_empresa_transporte'];
         }
 
@@ -434,12 +441,12 @@ class RecepcionMineralData
         ';
         $lotes = DB::select($lotesSql, ['id_sucursal' => $idSucursal]);
 
-        // 2. Obtener vehículos de la sucursal (de recepcion o del lote)
+        // 2. Obtener vehículos de la sucursal (de la recepción de unidad)
         $vehiculosSql = '
         SELECT DISTINCT v.id, v.placa
         FROM lote_mineral lm
         INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
-        INNER JOIN vehiculo v ON v.id = COALESCE(lm.id_vehiculo, ru.id_vehiculo)
+        INNER JOIN vehiculo v ON v.id = ru.id_vehiculo
         WHERE ru.id_sucursal = :id_sucursal
         ORDER BY v.placa ASC;
         ';
@@ -472,7 +479,7 @@ class RecepcionMineralData
         SELECT
             lot.id AS id_lote,
             lot.correlativo AS correlativo,
-            tb.numero AS ticket_numero,
+            tb.id AS ticket_numero,
             tb.created_at AS fecha_impresion,
             
             vh.placa AS placa,
@@ -508,30 +515,30 @@ class RecepcionMineralData
             zo.nombre AS zona_origen_nombre,
             
             -- observaciones
-            lot.observacion_peso_inicial,
-            lot.observacion_peso_final,
-            
+            NULL AS observacion_peso_inicial,
+            NULL AS observacion_peso_final,
+
             -- pesos y sus fechas
             lot.fecha_hora_peso_inicial,
-            COALESCE(ltg.peso_bruto, lot.peso_inicial) AS peso_bruto,
+            lot.peso_inicial AS peso_bruto,
             lot.fecha_hora_peso_final,
-            COALESCE(ltg.tara, lot.peso_final) AS peso_tara,
-            COALESCE(ltg.peso_neto, lot.peso_neto) AS peso_neto,
-            
+            lot.peso_final AS peso_tara,
+            lot.peso_neto AS peso_neto,
+
             -- operador
             CONCAT(COALESCE(eml.apellido, ''), ' ', COALESCE(eml.nombre, '')) AS operador,
             eml.dni AS dni_operador,
             cr.nombre AS cargo_operador
-            
+
         FROM lote_mineral lot
         LEFT JOIN ticket_balanza tb ON tb.id = lot.id_ticket_balanza
         LEFT JOIN lote_guia ltg ON ltg.id_lote_mineral = lot.id
         LEFT JOIN guia_primer_tramo gui ON gui.id = ltg.id_guia_primer_tramo
         LEFT JOIN recepcion_unidad rec ON rec.id = lot.id_recepcion_unidad
-        LEFT JOIN vehiculo vh ON vh.id = COALESCE(gui.id_vehiculo, lot.id_vehiculo, rec.id_vehiculo)
+        LEFT JOIN vehiculo vh ON vh.id = COALESCE(gui.id_vehiculo, rec.id_vehiculo)
         LEFT JOIN proveedor pr ON pr.id = COALESCE(gui.id_proveedor, lot.id_proveedor_minero)
-        LEFT JOIN conductor cnd ON cnd.id = COALESCE(gui.id_conductor, lot.id_conductor, rec.id_conductor) 
-        LEFT JOIN empresa_transporte emp ON emp.id = COALESCE(gui.id_empresa_transporte, lot.id_empresa_transporte, rec.id_empresa_transporte) 
+        LEFT JOIN conductor cnd ON cnd.id = COALESCE(gui.id_conductor, rec.id_conductor)
+        LEFT JOIN empresa_transporte emp ON emp.id = COALESCE(gui.id_empresa_transporte, rec.id_empresa_transporte)
         LEFT JOIN sucursal sc ON sc.id = COALESCE(gui.id_sucursal, rec.id_sucursal)
         LEFT JOIN departamento dep_sc ON dep_sc.id = sc.id_departamento
         LEFT JOIN provincia prv_sc ON prv_sc.id = sc.id_provincia

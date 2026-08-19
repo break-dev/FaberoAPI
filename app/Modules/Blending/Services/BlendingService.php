@@ -104,18 +104,22 @@ class BlendingService
                         throw new Exception("El lote con ID {$idLoteGuia} no fue encontrado.");
                     }
 
-                    $pesoActualOrigen = (float) ($loteGuia->peso_actual ?? $loteGuia->peso_neto);
+                    $loteMineral = $loteGuia->loteMineral;
+                    if (! $loteMineral) {
+                        throw new Exception("El lote de mineral asociado a la guía {$idLoteGuia} no fue encontrado.");
+                    }
+
+                    $pesoActualOrigen = (float) ($loteMineral->peso_actual ?? $loteMineral->peso_neto);
                     if ($pesoTomado > $pesoActualOrigen + 0.0001) {
                         throw new Exception("El peso a tomar ({$pesoTomado} kg) supera el peso disponible del lote ({$pesoActualOrigen} kg).");
                     }
 
-                    $loteMineral = $loteGuia->loteMineral;
-                    $leyOro = $loteMineral ? (float) $loteMineral->ley_oro : 0.0;
-                    $leyPlata = $loteMineral ? (float) $loteMineral->ley_plata : 0.0;
-                    $leyHumedad = $loteMineral ? (float) $loteMineral->ley_humedad : 0.0;
+                    $leyOro = (float) $loteMineral->ley_oro;
+                    $leyPlata = (float) $loteMineral->ley_plata;
+                    $leyHumedad = (float) $loteMineral->ley_humedad;
 
-                    $loteGuia->peso_actual = round(max(0, $pesoActualOrigen - $pesoTomado), 2);
-                    $loteGuia->save();
+                    $loteMineral->peso_actual = round(max(0, $pesoActualOrigen - $pesoTomado), 2);
+                    $loteMineral->save();
                 } else {
                     $origBlending = Blending::where('id', $idReblending)->lockForUpdate()->first();
                     if (! $origBlending) {
@@ -282,15 +286,17 @@ class BlendingService
                         }
 
                         if ($detalle->id_lote_guia !== null) {
-                            $lg = LoteGuia::where('id', $detalle->id_lote_guia)->lockForUpdate()->first();
-                            if (! $lg) {
+                            $lg = LoteGuia::with('loteMineral')->where('id', $detalle->id_lote_guia)->lockForUpdate()->first();
+                            if (! $lg || ! $lg->loteMineral) {
                                 throw new Exception("El lote {$detalle->id_lote_guia} no fue encontrado.");
                             }
-                            $disp = (float) ($lg->peso_actual ?? $lg->peso_neto);
+                            $lm = $lg->loteMineral;
+                            $disp = (float) ($lm->peso_actual ?? $lm->peso_neto);
                             if ($pesoAdicional > $disp + 0.0001) {
                                 throw new Exception("El peso adicional superó el disponible del lote ({$disp} kg).");
                             }
-                            LoteGuia::where('id', $detalle->id_lote_guia)->update(['peso_actual' => max($disp - $pesoAdicional, 0.0)]);
+                            $lm->peso_actual = max($disp - $pesoAdicional, 0.0);
+                            $lm->save();
                         } else {
                             $reb = Blending::where('id', $detalle->id_reblending)->lockForUpdate()->first();
                             if (! $reb) {
@@ -313,15 +319,17 @@ class BlendingService
 
                         $pesoActualOrigen = 0.0;
                         if ($idLoteGuia !== null) {
-                            $lg = LoteGuia::where('id', $idLoteGuia)->lockForUpdate()->first();
-                            if (! $lg) {
+                            $lg = LoteGuia::with('loteMineral')->where('id', $idLoteGuia)->lockForUpdate()->first();
+                            if (! $lg || ! $lg->loteMineral) {
                                 throw new Exception("El lote {$idLoteGuia} no fue encontrado.");
                             }
-                            $pesoActualOrigen = (float) ($lg->peso_actual ?? $lg->peso_neto);
+                            $lm = $lg->loteMineral;
+                            $pesoActualOrigen = (float) ($lm->peso_actual ?? $lm->peso_neto);
                             if ($pesoAdicional > $pesoActualOrigen + 0.0001) {
                                 throw new Exception("El peso adicional supera el disponible del lote ({$pesoActualOrigen} kg).");
                             }
-                            LoteGuia::where('id', $idLoteGuia)->update(['peso_actual' => max($pesoActualOrigen - $pesoAdicional, 0.0)]);
+                            $lm->peso_actual = max($pesoActualOrigen - $pesoAdicional, 0.0);
+                            $lm->save();
                         } else {
                             $reb = Blending::where('id', $idReblending)->lockForUpdate()->first();
                             if (! $reb) {

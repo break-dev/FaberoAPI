@@ -113,16 +113,9 @@ class GuiasPrimerTramoService
             $guiaId = DB::table('guia_primer_tramo')->insertGetId($valoresNuevos);
 
             foreach ($lotes as $lote) {
-                $pesoBruto = (float) ($lote['peso_bruto'] ?? 0);
-                $tara = (float) ($lote['tara'] ?? 0);
-                $pesoNeto = $pesoBruto - $tara;
-
                 DB::table('lote_guia')->insert([
                     'id_guia_primer_tramo' => $guiaId,
                     'id_lote_mineral' => (int) $lote['id_lote_mineral'],
-                    'peso_bruto' => $pesoBruto,
-                    'tara' => $tara,
-                    'peso_neto' => $pesoNeto,
                 ]);
             }
 
@@ -381,8 +374,6 @@ class GuiasPrimerTramoService
                 $correlativo = $loteMineral ? $loteMineral->correlativo : "Lote #$ol->id_lote_mineral";
                 $oldLotesData[$ol->id_lote_mineral] = [
                     'correlativo' => $correlativo,
-                    'peso_bruto' => (float) $ol->peso_bruto,
-                    'tara' => (float) $ol->tara,
                 ];
             }
 
@@ -393,35 +384,7 @@ class GuiasPrimerTramoService
                 $correlativo = $loteMineral ? $loteMineral->correlativo : "Lote #$idLoteMineral";
                 $newLotesData[$idLoteMineral] = [
                     'correlativo' => $correlativo,
-                    'peso_bruto' => (float) ($nl['peso_bruto'] ?? 0),
-                    'tara' => (float) ($nl['tara'] ?? 0),
                 ];
-            }
-
-            // Comparar cambios en lotes asociados
-            foreach ($oldLotesData as $idLote => $oldInfo) {
-                if (isset($newLotesData[$idLote])) {
-                    $newInfo = $newLotesData[$idLote];
-                    $correlativo = $oldInfo['correlativo'];
-
-                    if ($oldInfo['peso_bruto'] !== $newInfo['peso_bruto']) {
-                        $cambios[] = [
-                            'campo_bd' => 'peso_bruto_lote',
-                            'campo' => "Peso Bruto - {$correlativo}",
-                            'valor_anterior' => "{$oldInfo['peso_bruto']} kg",
-                            'valor_nuevo' => "{$newInfo['peso_bruto']} kg",
-                        ];
-                    }
-
-                    if ($oldInfo['tara'] !== $newInfo['tara']) {
-                        $cambios[] = [
-                            'campo_bd' => 'tara_lote',
-                            'campo' => "Tara - {$correlativo}",
-                            'valor_anterior' => "{$oldInfo['tara']} kg",
-                            'valor_nuevo' => "{$newInfo['tara']} kg",
-                        ];
-                    }
-                }
             }
 
             foreach (array_diff_key($newLotesData, $oldLotesData) as $idLote => $info) {
@@ -429,7 +392,7 @@ class GuiasPrimerTramoService
                     'campo_bd' => 'lote_asociado',
                     'campo' => 'Lote asociado',
                     'valor_anterior' => '—',
-                    'valor_nuevo' => "{$info['correlativo']} (P. Bruto {$info['peso_bruto']}kg, Tara {$info['tara']}kg)",
+                    'valor_nuevo' => "{$info['correlativo']}",
                 ];
             }
 
@@ -437,7 +400,7 @@ class GuiasPrimerTramoService
                 $cambios[] = [
                     'campo_bd' => 'lote_desasociado',
                     'campo' => 'Lote desasociado',
-                    'valor_anterior' => "{$info['correlativo']} (P. Bruto {$info['peso_bruto']}kg, Tara {$info['tara']}kg)",
+                    'valor_anterior' => "{$info['correlativo']}",
                     'valor_nuevo' => '—',
                 ];
             }
@@ -488,9 +451,6 @@ class GuiasPrimerTramoService
             $nuevosLotesIds = [];
             foreach ($lotes as $lote) {
                 $idLoteMineral = (int) $lote['id_lote_mineral'];
-                $pesoBruto = (float) ($lote['peso_bruto'] ?? 0);
-                $tara = (float) ($lote['tara'] ?? 0);
-                $pesoNeto = $pesoBruto - $tara;
 
                 $nuevosLotesIds[] = $idLoteMineral;
 
@@ -499,21 +459,10 @@ class GuiasPrimerTramoService
                     ->where('id_lote_mineral', $idLoteMineral)
                     ->first();
 
-                if ($loteGuia) {
-                    DB::table('lote_guia')
-                        ->where('id', $loteGuia->id)
-                        ->update([
-                            'peso_bruto' => $pesoBruto,
-                            'tara' => $tara,
-                            'peso_neto' => $pesoNeto,
-                        ]);
-                } else {
+                if (! $loteGuia) {
                     DB::table('lote_guia')->insert([
                         'id_guia_primer_tramo' => $id,
                         'id_lote_mineral' => $idLoteMineral,
-                        'peso_bruto' => $pesoBruto,
-                        'tara' => $tara,
-                        'peso_neto' => $pesoNeto,
                     ]);
                 }
             }

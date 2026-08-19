@@ -44,6 +44,7 @@ Route::middleware('auth.jwt.custom')->group(function () {
         Route::get('/vehiculos', [AuxController::class, 'get_vehiculos']);
         Route::post('/vehiculos', [AuxController::class, 'crear_vehiculo']);
         Route::put('/vehiculos/{id}', [AuxController::class, 'editar_vehiculo']);
+        Route::patch('/vehiculos/{id}/capacidad', [AuxController::class, 'update_capacidad_vehiculo']);
 
         // motivos de ingreso
         Route::get('/motivos-ingreso', [AuxController::class, 'get_motivos_ingreso']);

@@ -157,13 +157,13 @@ class GuiasPrimerTramoData
             lg.id,
             lg.id_guia_primer_tramo,
             lg.id_lote_mineral,
-            lg.peso_bruto,
-            lg.tara,
-            lg.peso_neto,
-            lg.log_cambios,
+            lg.id_particion_lote_mineral,
             lm.correlativo AS lote_correlativo,
             lm.tipo_producto,
-            lm.tipo_mineral
+            lm.tipo_mineral,
+            lm.peso_inicial AS peso_bruto,
+            lm.peso_final AS tara,
+            lm.peso_neto
         FROM lote_guia lg
         INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
         WHERE lg.id_guia_primer_tramo = :id_guia
@@ -176,7 +176,6 @@ class GuiasPrimerTramoData
             $row->peso_bruto = $row->peso_bruto !== null ? (float) $row->peso_bruto : null;
             $row->tara = $row->tara !== null ? (float) $row->tara : null;
             $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
-            $row->log_cambios = isset($row->log_cambios) ? json_decode($row->log_cambios, true) ?? [] : [];
         }
 
         return $rows;

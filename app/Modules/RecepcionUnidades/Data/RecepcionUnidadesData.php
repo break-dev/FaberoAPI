@@ -221,10 +221,12 @@ class RecepcionUnidadesData
             lm.created_at AS fecha_hora_registro,
             lm.peso_inicial,
             lm.fecha_hora_peso_inicial,
-            lm.observacion_peso_inicial,
             lm.peso_final,
             lm.fecha_hora_peso_final,
-            lm.observacion_peso_final
+            lm.peso_neto,
+            lm.peso_actual,
+            lm.tiene_particion,
+            lm.estado
         FROM lote_mineral lm
         WHERE lm.id_recepcion_unidad = :id_recepcion_unidad
         ORDER BY lm.numero_correlativo ASC
@@ -264,10 +266,8 @@ class RecepcionUnidadesData
 
         // Crear automáticamente el registro en ticket_balanza al generar el lote
         $ticketId = DB::table('ticket_balanza')->insertGetId([
-            'numero' => null,
             'created_at' => now(),
         ]);
-        DB::table('ticket_balanza')->where('id', $ticketId)->update(['numero' => $ticketId]);
 
         $lote = LoteMineral::create([
             'id_recepcion_unidad' => $idRecepcionUnidad,
@@ -276,10 +276,6 @@ class RecepcionUnidadesData
             'numero_correlativo' => $correlativoData['numero_correlativo'],
             'id_ticket_balanza' => $ticketId,
             'created_at' => now()->toDateTimeString(),
-            'id_vehiculo' => $recepcion->id_vehiculo,
-            'id_empresa_transporte' => $recepcion->id_empresa_transporte,
-            'id_tipo_vehiculo' => $recepcion->id_tipo_vehiculo,
-            'id_conductor' => $recepcion->id_conductor,
         ]);
 
         return $lote;

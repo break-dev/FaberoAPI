@@ -15,6 +15,7 @@ class LoteGuia extends Model
         'id_guia_primer_tramo',
         'id_lote_mineral',
         'id_particion_lote_mineral',
+        'created_at',
     ];
 
     protected $casts = [

@@ -3,11 +3,13 @@
 namespace App\Modules\GuiasPrimerTramo\Controllers;
 
 use App\Modules\GuiasPrimerTramo\Services\GuiasPrimerTramoService;
+use App\Shared\Enums\_Generic\CondicionIngreso;
 use App\Shared\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class GuiasPrimerTramoController extends Controller
 {
@@ -49,7 +51,7 @@ class GuiasPrimerTramoController extends Controller
     }
 
     /**
-     * Crear una guía de primer tramo con sus lotes y evidencias.
+     * Crea una guía de primer tramo con sus items (lotes o particiones) y documentos.
      */
     public function crear_guia(Request $request): JsonResponse
     {
@@ -70,38 +72,55 @@ class GuiasPrimerTramoController extends Controller
             'id_vehiculo_carreta' => 'nullable|integer|exists:vehiculo,id',
             'id_empresa_transporte_carreta' => 'nullable|integer|exists:empresa_transporte,id',
             'motivo_traslado' => 'required|string|max:100',
+            'condicion_ingreso' => ['nullable', 'string', Rule::enum(CondicionIngreso::class)],
             'fecha_inicio_traslado' => 'nullable|date',
             'fecha_emision' => 'nullable|date',
             'fecha_en_planta' => 'nullable|date',
-            'serie_guia_remitente' => 'nullable|string|max:10',
-            'numero_guia_remitente' => 'nullable|string|max:20',
-            'serie_guia_transportista' => 'nullable|string|max:10',
-            'numero_guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente' => 'nullable|string|max:20',
+            'guia_transportista' => 'nullable|string|max:20',
             'sin_guia_transportista' => 'nullable|boolean',
-            'evidencias' => 'nullable|array',
-            'evidencias.*' => 'file',
+            'documento_guia_remitente' => 'nullable|file',
+            'documento_guia_transportista' => 'nullable|file',
         ]);
 
-        // El frontend envía `lotes` como JSON-string dentro de multipart/form-data.
-        // Lo parseamos manualmente y validamos su estructura.
         $lotesRaw = $request->input('lotes');
         $lotes = is_string($lotesRaw) ? json_decode($lotesRaw, true) : $lotesRaw;
 
         if (! is_array($lotes) || count($lotes) === 0) {
-            return response()->json(ApiResponse::error('Debe agregar al menos un lote a la guía.'), 422);
+            return response()->json(ApiResponse::error('Debe agregar al menos un item a la guía.'), 422);
         }
 
         foreach ($lotes as $idx => $lote) {
             if (! is_array($lote)) {
-                return response()->json(ApiResponse::error("Lote en posición {$idx} con formato inválido."), 422);
+                return response()->json(ApiResponse::error("Item en posición {$idx} con formato inválido."), 422);
             }
-            if (empty($lote['id_lote_mineral']) || ! is_numeric($lote['id_lote_mineral'])) {
-                return response()->json(ApiResponse::error("Lote {$idx}: id_lote_mineral es requerido."), 422);
+
+            $idLote = $lote['id_lote_mineral'] ?? null;
+            $idPart = $lote['id_particion_lote_mineral'] ?? null;
+
+            $hasLote = $idLote !== null && $idLote !== '' && is_numeric($idLote);
+            $hasPart = $idPart !== null && $idPart !== '' && is_numeric($idPart);
+
+            if ($hasLote && $hasPart) {
+                return response()->json(ApiResponse::error("Item {$idx}: solo uno de id_lote_mineral o id_particion_lote_mineral, no ambos."), 422);
             }
-            // Validar existencia del lote
-            $exists = DB::table('lote_mineral')->where('id', (int) $lote['id_lote_mineral'])->exists();
-            if (! $exists) {
-                return response()->json(ApiResponse::error("Lote {$idx}: id_lote_mineral no existe."), 422);
+
+            if (! $hasLote && ! $hasPart) {
+                return response()->json(ApiResponse::error("Item {$idx}: debe indicar id_lote_mineral o id_particion_lote_mineral."), 422);
+            }
+
+            if ($hasLote) {
+                $exists = DB::table('lote_mineral')->where('id', (int) $idLote)->exists();
+                if (! $exists) {
+                    return response()->json(ApiResponse::error("Item {$idx}: id_lote_mineral no existe."), 422);
+                }
+            }
+
+            if ($hasPart) {
+                $exists = DB::table('particion_lote_mineral')->where('id', (int) $idPart)->exists();
+                if (! $exists) {
+                    return response()->json(ApiResponse::error("Item {$idx}: id_particion_lote_mineral no existe."), 422);
+                }
             }
         }
 
@@ -115,29 +134,25 @@ class GuiasPrimerTramoController extends Controller
             'id_vehiculo_carreta' => $request->input('id_vehiculo_carreta'),
             'id_empresa_transporte_carreta' => $request->input('id_empresa_transporte_carreta'),
             'motivo_traslado' => $request->input('motivo_traslado'),
+            'condicion_ingreso' => $request->input('condicion_ingreso'),
             'fecha_inicio_traslado' => $request->input('fecha_inicio_traslado'),
             'fecha_emision' => $request->input('fecha_emision'),
             'fecha_en_planta' => $request->input('fecha_en_planta'),
-            'serie_guia_remitente' => $request->input('serie_guia_remitente'),
-            'numero_guia_remitente' => $request->input('numero_guia_remitente'),
-            'serie_guia_transportista' => $request->input('serie_guia_transportista'),
-            'numero_guia_transportista' => $request->input('numero_guia_transportista'),
+            'guia_remitente' => $request->input('guia_remitente'),
+            'guia_transportista' => $request->input('guia_transportista'),
             'sin_guia_transportista' => $request->boolean('sin_guia_transportista'),
         ];
 
-        $archivos = [];
-        if ($request->hasFile('evidencias')) {
-            $archivos = $request->file('evidencias');
-            if (! is_array($archivos)) {
-                $archivos = [$archivos];
-            }
-        }
+        $archivos = [
+            'guia_remitente' => $request->hasFile('documento_guia_remitente') ? $request->file('documento_guia_remitente') : null,
+            'guia_transportista' => $request->hasFile('documento_guia_transportista') ? $request->file('documento_guia_transportista') : null,
+        ];
 
         return response()->json(GuiasPrimerTramoService::crear_guia($data, $lotes, $archivos, $request));
     }
 
     /**
-     * Actualizar una guía de primer tramo con sus lotes y evidencias.
+     * Actualiza una guía de primer tramo con sus items y documentos.
      */
     public function actualizar_guia(Request $request, int $id): JsonResponse
     {
@@ -158,17 +173,15 @@ class GuiasPrimerTramoController extends Controller
             'id_vehiculo_carreta' => 'nullable|integer|exists:vehiculo,id',
             'id_empresa_transporte_carreta' => 'nullable|integer|exists:empresa_transporte,id',
             'motivo_traslado' => 'required|string|max:100',
+            'condicion_ingreso' => ['nullable', 'string', Rule::enum(CondicionIngreso::class)],
             'fecha_inicio_traslado' => 'nullable|date',
             'fecha_emision' => 'nullable|date',
             'fecha_en_planta' => 'nullable|date',
-            'serie_guia_remitente' => 'nullable|string|max:10',
-            'numero_guia_remitente' => 'nullable|string|max:20',
-            'serie_guia_transportista' => 'nullable|string|max:10',
-            'numero_guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente' => 'nullable|string|max:20',
+            'guia_transportista' => 'nullable|string|max:20',
             'sin_guia_transportista' => 'nullable|boolean',
-            'evidencias' => 'nullable|array',
-            'evidencias.*' => 'file',
-            'evidencias_existentes' => 'nullable|string',
+            'documento_guia_remitente' => 'nullable|file',
+            'documento_guia_transportista' => 'nullable|file',
             'motivo' => 'nullable|string',
         ]);
 
@@ -176,20 +189,40 @@ class GuiasPrimerTramoController extends Controller
         $lotes = is_string($lotesRaw) ? json_decode($lotesRaw, true) : $lotesRaw;
 
         if (! is_array($lotes) || count($lotes) === 0) {
-            return response()->json(ApiResponse::error('Debe agregar al menos un lote a la guía.'), 422);
+            return response()->json(ApiResponse::error('Debe agregar al menos un item a la guía.'), 422);
         }
 
         foreach ($lotes as $idx => $lote) {
             if (! is_array($lote)) {
-                return response()->json(ApiResponse::error("Lote en posición {$idx} con formato inválido."), 422);
+                return response()->json(ApiResponse::error("Item en posición {$idx} con formato inválido."), 422);
             }
-            if (empty($lote['id_lote_mineral']) || ! is_numeric($lote['id_lote_mineral'])) {
-                return response()->json(ApiResponse::error("Lote {$idx}: id_lote_mineral es requerido."), 422);
+
+            $idLote = $lote['id_lote_mineral'] ?? null;
+            $idPart = $lote['id_particion_lote_mineral'] ?? null;
+
+            $hasLote = $idLote !== null && $idLote !== '' && is_numeric($idLote);
+            $hasPart = $idPart !== null && $idPart !== '' && is_numeric($idPart);
+
+            if ($hasLote && $hasPart) {
+                return response()->json(ApiResponse::error("Item {$idx}: solo uno de id_lote_mineral o id_particion_lote_mineral, no ambos."), 422);
             }
-            // Validar existencia del lote
-            $exists = DB::table('lote_mineral')->where('id', (int) $lote['id_lote_mineral'])->exists();
-            if (! $exists) {
-                return response()->json(ApiResponse::error("Lote {$idx}: id_lote_mineral no existe."), 422);
+
+            if (! $hasLote && ! $hasPart) {
+                return response()->json(ApiResponse::error("Item {$idx}: debe indicar id_lote_mineral o id_particion_lote_mineral."), 422);
+            }
+
+            if ($hasLote) {
+                $exists = DB::table('lote_mineral')->where('id', (int) $idLote)->exists();
+                if (! $exists) {
+                    return response()->json(ApiResponse::error("Item {$idx}: id_lote_mineral no existe."), 422);
+                }
+            }
+
+            if ($hasPart) {
+                $exists = DB::table('particion_lote_mineral')->where('id', (int) $idPart)->exists();
+                if (! $exists) {
+                    return response()->json(ApiResponse::error("Item {$idx}: id_particion_lote_mineral no existe."), 422);
+                }
             }
         }
 
@@ -203,25 +236,20 @@ class GuiasPrimerTramoController extends Controller
             'id_vehiculo_carreta' => $request->input('id_vehiculo_carreta'),
             'id_empresa_transporte_carreta' => $request->input('id_empresa_transporte_carreta'),
             'motivo_traslado' => $request->input('motivo_traslado'),
+            'condicion_ingreso' => $request->input('condicion_ingreso'),
             'fecha_inicio_traslado' => $request->input('fecha_inicio_traslado'),
             'fecha_emision' => $request->input('fecha_emision'),
             'fecha_en_planta' => $request->input('fecha_en_planta'),
-            'serie_guia_remitente' => $request->input('serie_guia_remitente'),
-            'numero_guia_remitente' => $request->input('numero_guia_remitente'),
-            'serie_guia_transportista' => $request->input('serie_guia_transportista'),
-            'numero_guia_transportista' => $request->input('numero_guia_transportista'),
+            'guia_remitente' => $request->input('guia_remitente'),
+            'guia_transportista' => $request->input('guia_transportista'),
             'sin_guia_transportista' => $request->boolean('sin_guia_transportista'),
-            'evidencias_existentes' => $request->input('evidencias_existentes'),
             'motivo' => $request->input('motivo'),
         ];
 
-        $archivos = [];
-        if ($request->hasFile('evidencias')) {
-            $archivos = $request->file('evidencias');
-            if (! is_array($archivos)) {
-                $archivos = [$archivos];
-            }
-        }
+        $archivos = [
+            'guia_remitente' => $request->hasFile('documento_guia_remitente') ? $request->file('documento_guia_remitente') : null,
+            'guia_transportista' => $request->hasFile('documento_guia_transportista') ? $request->file('documento_guia_transportista') : null,
+        ];
 
         return response()->json(GuiasPrimerTramoService::actualizar_guia($id, $data, $lotes, $archivos, $request));
     }

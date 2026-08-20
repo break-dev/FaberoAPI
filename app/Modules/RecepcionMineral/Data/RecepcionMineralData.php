@@ -133,6 +133,7 @@ class RecepcionMineralData
         LEFT JOIN conductor c_lote ON c_lote.id = ru.id_conductor
         WHERE
             lm.id_recepcion_unidad = :recepcion_unidad_id
+            AND (lm.estado IS NULL OR lm.estado != "Eliminado")
         ORDER BY lm.correlativo ASC
         ';
 
@@ -370,6 +371,7 @@ class RecepcionMineralData
         WHERE
             ru.id_sucursal = :id_sucursal
             AND ru.estado_pesaje = :estado_pesaje
+            AND (lm.estado IS NULL OR lm.estado != "Eliminado")
         ';
 
         $params = [
@@ -437,6 +439,7 @@ class RecepcionMineralData
         FROM lote_mineral lm
         INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
         WHERE ru.id_sucursal = :id_sucursal
+          AND (lm.estado IS NULL OR lm.estado != "Eliminado")
         ORDER BY lm.correlativo DESC;
         ';
         $lotes = DB::select($lotesSql, ['id_sucursal' => $idSucursal]);
@@ -487,7 +490,7 @@ class RecepcionMineralData
             lot.tipo_producto,
             lot.tipo_mineral,
             
-            CONCAT(COALESCE(gui.serie_guia_remitente, ''), IF(gui.serie_guia_remitente IS NOT NULL AND gui.serie_guia_remitente != '', '-', ''), COALESCE(gui.numero_guia_remitente, '')) AS guia_remision,
+            gui.guia_remitente AS guia_remision,
             
             pr.ruc AS ruc_proveedor,
             pr.razon_social AS proveedor,
@@ -497,7 +500,7 @@ class RecepcionMineralData
             
             emp.razon_social AS empresa_transporte,
             
-            CONCAT(COALESCE(gui.serie_guia_transportista, ''), IF(gui.serie_guia_transportista IS NOT NULL AND gui.serie_guia_transportista != '', '-', ''), COALESCE(gui.numero_guia_transportista, '')) AS guia_transporte,
+            CASE WHEN gui.sin_guia_transportista = 1 OR gui.guia_transportista IS NULL OR gui.guia_transportista = '' THEN NULL ELSE gui.guia_transportista END AS guia_transporte,
             
             -- sucursal (Destino)
             sc.nombre AS nombre_sucursal,

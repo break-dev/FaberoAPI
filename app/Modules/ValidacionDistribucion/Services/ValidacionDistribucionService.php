@@ -416,5 +416,18 @@ class ValidacionDistribucionService
 
         return ApiResponse::success($data, 'Ticket de balanza obtenido correctamente.');
     }
+
+    /**
+     * Obtener metadatos completos para el Ticket de Balanza del lote padre.
+     */
+    public static function get_ticket_balanza_lote(int $idLote): array
+    {
+        $data = ValidacionDistribucionData::get_ticket_balanza_lote($idLote);
+        if (! $data) {
+            return ApiResponse::error('No se encontró la información del ticket para el lote especificado.', 404);
+        }
+
+        return ApiResponse::success($data, 'Ticket de balanza del lote obtenido correctamente.');
+    }
 }
 

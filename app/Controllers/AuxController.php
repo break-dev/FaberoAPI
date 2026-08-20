@@ -376,16 +376,27 @@ class AuxController extends Controller
     }
 
     /**
-     * Obtener lotes de mineral disponibles (Pesado, sin asignar a una guía) para el modal de selección.
+     * Obtener items de mineral disponibles (lotes sin particiones + particiones)
+     * para seleccionar en una guía de primer tramo.
+     *
+     * Devuelve un shape unificado {tipo_item: 'LOTE'|'PARTICION', id_lote_mineral, id_particion_lote_mineral, ...}.
      */
     public function get_lotes_mineral_disponibles(Request $request): JsonResponse
     {
         $idSucursal = $request->query('id_sucursal') ? (int) $request->query('id_sucursal') : null;
         $idProveedor = $request->query('id_proveedor') ? (int) $request->query('id_proveedor') : null;
 
-        $sql = '
+        $estadoPesaje = EstadoPesaje::Pesado->value;
+        $estadoGuiaActivo = EstadoBase::Activo->value;
+
+        $results = [];
+
+        // 1) Lotes enteros sin particiones y sin asignar a una guía activa.
+        $sqlLotes = '
         SELECT
-            lm.id,
+            "LOTE" AS tipo_item,
+            lm.id AS id_lote_mineral,
+            NULL AS id_particion_lote_mineral,
             lm.id_recepcion_unidad,
             lm.id_proveedor_minero,
             lm.correlativo,
@@ -403,6 +414,7 @@ class AuxController extends Controller
                 FROM lote_guia lg
                 INNER JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
                 WHERE lg.id_lote_mineral = lm.id
+                  AND lg.id_particion_lote_mineral IS NULL
                   AND gpt.estado = :estado_guia_activo
             ) AS en_guia
         FROM lote_mineral lm
@@ -411,39 +423,105 @@ class AuxController extends Controller
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         WHERE lm.peso_inicial IS NOT NULL
           AND lm.peso_final IS NOT NULL
+          AND lm.tiene_particion = 0
           AND ru.estado_pesaje = :estado_pesaje
         ';
 
         $params = [
-            'estado_pesaje' => EstadoPesaje::Pesado->value,
-            'estado_guia_activo' => EstadoBase::Activo->value,
+            'estado_pesaje' => $estadoPesaje,
+            'estado_guia_activo' => $estadoGuiaActivo,
         ];
 
         if ($idSucursal !== null) {
-            $sql .= ' AND ru.id_sucursal = :id_sucursal';
+            $sqlLotes .= ' AND ru.id_sucursal = :id_sucursal';
             $params['id_sucursal'] = $idSucursal;
         }
 
         if ($idProveedor !== null) {
-            $sql .= ' AND lm.id_proveedor_minero = :id_proveedor';
+            $sqlLotes .= ' AND lm.id_proveedor_minero = :id_proveedor';
             $params['id_proveedor'] = $idProveedor;
         }
 
-        $sql .= ' ORDER BY lm.correlativo ASC;';
+        $sqlLotes .= ' ORDER BY lm.correlativo ASC;';
 
-        $rows = DB::select($sql, $params);
-
-        foreach ($rows as $row) {
+        foreach (DB::select($sqlLotes, $params) as $row) {
+            $row->id_lote_mineral = (int) $row->id_lote_mineral;
+            $row->id_particion_lote_mineral = null;
             $row->peso_inicial = $row->peso_inicial !== null ? (float) $row->peso_inicial : null;
             $row->peso_final = $row->peso_final !== null ? (float) $row->peso_final : null;
             $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
             $row->en_guia = (int) $row->en_guia > 0;
+            $row->id = (int) $row->id_lote_mineral;
+            $results[] = $row;
+        }
+
+        // 2) Particiones de lotes, sin asignar a una guía activa.
+        $sqlParticiones = '
+        SELECT
+            "PARTICION" AS tipo_item,
+            plm.id_lote_mineral,
+            plm.id AS id_particion_lote_mineral,
+            lm.id_recepcion_unidad,
+            lm.id_proveedor_minero,
+            plm.correlativo,
+            lm.numero_correlativo,
+            lm.tipo_producto,
+            lm.tipo_mineral,
+            plm.peso_inicial,
+            plm.peso_final,
+            plm.peso_neto,
+            plm.fecha_hora_peso_inicial AS created_at,
+            p.razon_social AS proveedor_nombre,
+            v.placa AS vehiculo_placa,
+            (
+                SELECT COUNT(*)
+                FROM lote_guia lg
+                INNER JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
+                WHERE lg.id_particion_lote_mineral = plm.id
+                  AND gpt.estado = :estado_guia_activo
+            ) AS en_guia
+        FROM particion_lote_mineral plm
+        INNER JOIN lote_mineral lm ON lm.id = plm.id_lote_mineral
+        INNER JOIN recepcion_unidad ru ON ru.id = plm.id_recepcion_unidad
+        INNER JOIN vehiculo v ON v.id = ru.id_vehiculo
+        LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
+        WHERE lm.peso_inicial IS NOT NULL
+          AND lm.peso_final IS NOT NULL
+          AND ru.estado_pesaje = :estado_pesaje
+        ';
+
+        $params2 = [
+            'estado_pesaje' => $estadoPesaje,
+            'estado_guia_activo' => $estadoGuiaActivo,
+        ];
+
+        if ($idSucursal !== null) {
+            $sqlParticiones .= ' AND ru.id_sucursal = :id_sucursal';
+            $params2['id_sucursal'] = $idSucursal;
+        }
+
+        if ($idProveedor !== null) {
+            $sqlParticiones .= ' AND lm.id_proveedor_minero = :id_proveedor';
+            $params2['id_proveedor'] = $idProveedor;
+        }
+
+        $sqlParticiones .= ' ORDER BY plm.correlativo ASC;';
+
+        foreach (DB::select($sqlParticiones, $params2) as $row) {
+            $row->id_lote_mineral = (int) $row->id_lote_mineral;
+            $row->id_particion_lote_mineral = (int) $row->id_particion_lote_mineral;
+            $row->peso_inicial = $row->peso_inicial !== null ? (float) $row->peso_inicial : null;
+            $row->peso_final = $row->peso_final !== null ? (float) $row->peso_final : null;
+            $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
+            $row->en_guia = (int) $row->en_guia > 0;
+            $row->id = (int) $row->id_particion_lote_mineral;
+            $results[] = $row;
         }
 
         return response()->json([
             'success' => true,
-            'message' => 'Lotes de mineral disponibles obtenidos correctamente',
-            'data' => $rows,
+            'message' => 'Items de mineral disponibles obtenidos correctamente',
+            'data' => $results,
         ]);
     }
 

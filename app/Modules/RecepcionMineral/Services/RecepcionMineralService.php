@@ -8,6 +8,7 @@ use App\Models\RecepcionUnidad;
 use App\Models\Vehiculo;
 use App\Modules\RecepcionMineral\Data\RecepcionMineralData;
 use App\Shared\Enums\_Generic\CondicionIngreso;
+use App\Shared\Enums\_Generic\EstadoBase;
 use App\Shared\Enums\_Generic\EstadoLeyes;
 use App\Shared\Enums\_Generic\Periodo;
 use App\Shared\Helpers\ArchivoHelper;
@@ -220,6 +221,7 @@ class RecepcionMineralService
             'numero_correlativo' => $numeroCorrelativo,
             'id_ticket_balanza' => $ticketId,
             'estado_leyes' => EstadoLeyes::Pendiente->value,
+            'estado' => EstadoBase::Activo->value,
             'created_at' => now()->toDateTimeString(),
         ]);
 
@@ -229,7 +231,7 @@ class RecepcionMineralService
     }
 
     /**
-     * Eliminar un lote vacío o incompleto
+     * Eliminar un lote vacío o incompleto (Eliminación Lógica)
      */
     public static function eliminar_lote(int $loteId): array
     {
@@ -238,11 +240,8 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró el registro de lote.');
         }
 
-        if ($lote->id_ticket_balanza) {
-            DB::table('ticket_balanza')->where('id', $lote->id_ticket_balanza)->delete();
-        }
-
-        $lote->delete();
+        $lote->estado = EstadoBase::Eliminado->value;
+        $lote->save();
 
         return ApiResponse::success(null, 'Lote eliminado correctamente.');
     }

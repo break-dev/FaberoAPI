@@ -8,7 +8,6 @@ use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\ApiResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class GuiasPrimerTramoService
 {
@@ -50,21 +49,52 @@ class GuiasPrimerTramoService
     }
 
     /**
-     * Crear una nueva guía de primer tramo con sus lotes.
+     * Construye el JSON `documentos` a partir de los archivos subidos y los previos.
+     *
+     * @param  array{guia_remitente: ?\Illuminate\Http\UploadedFile, guia_transportista: ?\Illuminate\Http\UploadedFile}  $archivos
+     * @param  array  $previos  documentos previos {guia_remitente, guia_transportista}
+     * @param  bool  $sin_guia_transportista
+     * @return array JSON listo para almacenar.
      */
-    public static function crear_guia(array $data, array $lotes, array $archivos, ?Request $request = null): array
+    private static function build_documentos(array $archivos, array $previos, bool $sin_guia_transportista): array
     {
-        if (empty($lotes)) {
-            return ApiResponse::error('Debe agregar al menos un lote a la guía.');
+        $doc = [
+            'guia_remitente' => $previos['guia_remitente'] ?? null,
+        ];
+
+        if ($sin_guia_transportista) {
+            $doc['guia_transportista'] = null;
+        } else {
+            $doc['guia_transportista'] = $previos['guia_transportista'] ?? null;
         }
 
-        $qrTransportista = (string) Str::uuid();
-        $qrRemitente = (string) Str::uuid();
-
-        $evidenciasGuardadas = [];
-        if (! empty($archivos)) {
-            $evidenciasGuardadas = ArchivoHelper::guardarArchivos('guias-primer-tramo', $archivos);
+        if ($archivos['guia_remitente'] !== null) {
+            $saved = ArchivoHelper::guardarArchivos('guias-primer-tramo', [$archivos['guia_remitente']]);
+            $doc['guia_remitente'] = $saved[0] ?? null;
         }
+
+        if (! $sin_guia_transportista && $archivos['guia_transportista'] !== null) {
+            $saved = ArchivoHelper::guardarArchivos('guias-primer-tramo', [$archivos['guia_transportista']]);
+            $doc['guia_transportista'] = $saved[0] ?? null;
+        }
+
+        return $doc;
+    }
+
+    /**
+     * Crear una nueva guía de primer tramo con sus items.
+     *
+     * @param  array  $data  Cabecera validada.
+     * @param  array  $items  Cada item: {id_lote_mineral?: int, id_particion_lote_mineral?: int} (excluyentes).
+     * @param  array{guia_remitente: ?\Illuminate\Http\UploadedFile, guia_transportista: ?\Illuminate\Http\UploadedFile}  $archivos
+     */
+    public static function crear_guia(array $data, array $items, array $archivos, ?Request $request = null): array
+    {
+        if (empty($items)) {
+            return ApiResponse::error('Debe agregar al menos un item a la guía.');
+        }
+
+        $sinGuiaTransportista = ! empty($data['sin_guia_transportista']);
 
         try {
             DB::beginTransaction();
@@ -76,6 +106,8 @@ class GuiasPrimerTramoService
                     $idEmpleadoRegistro = (int) $authUser->id_empleado;
                 }
             }
+
+            $documentos = self::build_documentos($archivos, [], $sinGuiaTransportista);
 
             $valoresNuevos = [
                 'id_sucursal' => (int) $data['id_sucursal'],
@@ -92,32 +124,37 @@ class GuiasPrimerTramoService
                 'id_empresa_transporte_carreta' => isset($data['id_empresa_transporte_carreta']) && $data['id_empresa_transporte_carreta'] !== null
                     ? (int) $data['id_empresa_transporte_carreta']
                     : null,
-                'qr_token_transportista' => $qrTransportista,
-                'qr_token_remitente' => $qrRemitente,
                 'motivo_traslado' => $data['motivo_traslado'],
-                'evidencias' => ! empty($evidenciasGuardadas) ? json_encode($evidenciasGuardadas) : null,
+                'condicion_ingreso' => $data['condicion_ingreso'] ?? null,
                 'fecha_inicio_traslado' => $data['fecha_inicio_traslado'] ?? null,
                 'fecha_emision' => $data['fecha_emision'] ?? null,
                 'fecha_en_planta' => $data['fecha_en_planta'] ?? null,
-                'serie_guia_remitente' => $data['serie_guia_remitente'] ?? null,
-                'numero_guia_remitente' => $data['numero_guia_remitente'] ?? null,
-                'serie_guia_transportista' => $data['serie_guia_transportista'] ?? null,
-                'numero_guia_transportista' => $data['numero_guia_transportista'] ?? null,
-                'sin_guia_transportista' => ! empty($data['sin_guia_transportista']),
+                'guia_remitente' => $data['guia_remitente'] ?? null,
+                'guia_transportista' => $sinGuiaTransportista ? null : ($data['guia_transportista'] ?? null),
+                'sin_guia_transportista' => $sinGuiaTransportista,
+                'documentos' => json_encode($documentos),
                 'id_empleado_registro' => $idEmpleadoRegistro,
                 'estado' => EstadoBase::Activo->value,
+                'created_at' => now()->toDateTimeString(),
             ];
-
-            $valoresNuevos['created_at'] = now()->toDateTimeString();
 
             $guiaId = DB::table('guia_primer_tramo')->insertGetId($valoresNuevos);
 
-            foreach ($lotes as $lote) {
-                DB::table('lote_guia')->insert([
+            $now = now()->toDateTimeString();
+            $rows = [];
+            foreach ($items as $item) {
+                $rows[] = [
                     'id_guia_primer_tramo' => $guiaId,
-                    'id_lote_mineral' => (int) $lote['id_lote_mineral'],
-                ]);
+                    'id_lote_mineral' => isset($item['id_lote_mineral']) && $item['id_lote_mineral'] !== null
+                        ? (int) $item['id_lote_mineral']
+                        : null,
+                    'id_particion_lote_mineral' => isset($item['id_particion_lote_mineral']) && $item['id_particion_lote_mineral'] !== null
+                        ? (int) $item['id_particion_lote_mineral']
+                        : null,
+                    'created_at' => $now,
+                ];
             }
+            DB::table('lote_guia')->insert($rows);
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -132,12 +169,12 @@ class GuiasPrimerTramoService
     }
 
     /**
-     * Actualizar una guía de primer tramo con sus lotes y evidencias.
+     * Actualizar una guía de primer tramo con sus items.
      */
-    public static function actualizar_guia(int $id, array $data, array $lotes, array $archivos, ?Request $request = null): array
+    public static function actualizar_guia(int $id, array $data, array $items, array $archivos, ?Request $request = null): array
     {
-        if (empty($lotes)) {
-            return ApiResponse::error('Debe agregar al menos un lote a la guía.');
+        if (empty($items)) {
+            return ApiResponse::error('Debe agregar al menos un item a la guía.');
         }
 
         try {
@@ -150,19 +187,14 @@ class GuiasPrimerTramoService
                 return ApiResponse::error('No se encontró la guía de primer tramo.');
             }
 
-            $evidenciasGuardadas = [];
-            if (array_key_exists('evidencias_existentes', $data)) {
-                $evidenciasGuardadas = is_array($data['evidencias_existentes'])
-                    ? $data['evidencias_existentes']
-                    : (json_decode($data['evidencias_existentes'], true) ?? []);
-            } else {
-                $evidenciasGuardadas = isset($guia->evidencias) ? json_decode($guia->evidencias, true) ?? [] : [];
-            }
+            $sinGuiaTransportista = ! empty($data['sin_guia_transportista']);
 
-            if (! empty($archivos)) {
-                $nuevasEvidencias = ArchivoHelper::guardarArchivos('guias-primer-tramo', $archivos);
-                $evidenciasGuardadas = array_merge($evidenciasGuardadas, $nuevasEvidencias);
-            }
+            $previosDocumentos = isset($guia->documentos) ? json_decode($guia->documentos, true) ?? [] : [];
+            $documentos = self::build_documentos(
+                $archivos,
+                is_array($previosDocumentos) ? $previosDocumentos : [],
+                $sinGuiaTransportista
+            );
 
             $nuevosValoresCab = [
                 'id_sucursal' => (int) $data['id_sucursal'],
@@ -180,15 +212,14 @@ class GuiasPrimerTramoService
                     ? (int) $data['id_empresa_transporte_carreta']
                     : null,
                 'motivo_traslado' => $data['motivo_traslado'],
-                'evidencias' => $evidenciasGuardadas,
+                'condicion_ingreso' => $data['condicion_ingreso'] ?? null,
                 'fecha_inicio_traslado' => $data['fecha_inicio_traslado'] ?? null,
                 'fecha_emision' => $data['fecha_emision'] ?? null,
                 'fecha_en_planta' => $data['fecha_en_planta'] ?? null,
-                'serie_guia_remitente' => $data['serie_guia_remitente'] ?? null,
-                'numero_guia_remitente' => $data['numero_guia_remitente'] ?? null,
-                'serie_guia_transportista' => $data['serie_guia_transportista'] ?? null,
-                'numero_guia_transportista' => $data['numero_guia_transportista'] ?? null,
-                'sin_guia_transportista' => ! empty($data['sin_guia_transportista']),
+                'guia_remitente' => $data['guia_remitente'] ?? null,
+                'guia_transportista' => $sinGuiaTransportista ? null : ($data['guia_transportista'] ?? null),
+                'sin_guia_transportista' => $sinGuiaTransportista,
+                'documentos' => $documentos,
             ];
 
             // --- AUDITORÍA DE CAMBIOS ---
@@ -297,27 +328,22 @@ class GuiasPrimerTramoService
                     },
                 ],
                 'motivo_traslado' => ['nombre' => 'Motivo de traslado', 'tipo' => 'string'],
+                'condicion_ingreso' => ['nombre' => 'Condición de ingreso', 'tipo' => 'string'],
                 'fecha_inicio_traslado' => ['nombre' => 'Fecha inicio traslado', 'tipo' => 'string'],
                 'fecha_emision' => ['nombre' => 'Fecha de emisión', 'tipo' => 'string'],
                 'fecha_en_planta' => ['nombre' => 'Fecha en planta', 'tipo' => 'string'],
-                'serie_guia_remitente' => ['nombre' => 'Serie GR', 'tipo' => 'string'],
-                'numero_guia_remitente' => ['nombre' => 'Número GR', 'tipo' => 'string'],
-                'serie_guia_transportista' => ['nombre' => 'Serie GT', 'tipo' => 'string'],
-                'numero_guia_transportista' => ['nombre' => 'Número GT', 'tipo' => 'string'],
+                'guia_remitente' => ['nombre' => 'Guía remitente', 'tipo' => 'string'],
+                'guia_transportista' => ['nombre' => 'Guía transportista', 'tipo' => 'string'],
                 'sin_guia_transportista' => ['nombre' => 'Sin guía transportista', 'tipo' => 'bool'],
             ];
 
             foreach ($camposAuditar as $campoBd => $meta) {
-                $valAnt = $guia->$campoBd;
+                $valAnt = $guia->$campoBd ?? null;
                 $valNue = array_key_exists($campoBd, $data) ? $data[$campoBd] : null;
 
-                // Normalizar tipos para la comparación
                 if ($meta['tipo'] === 'int') {
                     $valAnt = $valAnt !== null ? (int) $valAnt : null;
                     $valNue = ($valNue !== null && $valNue !== '') ? (int) $valNue : null;
-                } elseif ($meta['tipo'] === 'float') {
-                    $valAnt = $valAnt !== null ? (float) $valAnt : null;
-                    $valNue = ($valNue !== null && $valNue !== '') ? (float) $valNue : null;
                 } elseif ($meta['tipo'] === 'bool') {
                     $valAnt = ! empty($valAnt);
                     $valNue = ! empty($valNue);
@@ -339,68 +365,52 @@ class GuiasPrimerTramoService
                 }
             }
 
-            // Comparar evidencias
-            $vAntEvidencias = isset($guia->evidencias) ? json_decode($guia->evidencias, true) ?? [] : [];
-            $nombresAnt = [];
-            foreach ($vAntEvidencias as $e) {
-                if (isset($e['nombre_original'])) {
-                    $nombresAnt[] = $e['nombre_original'];
+            // Comparar items (lotes o particiones) asociados.
+            $vAntItems = DB::table('lote_guia')->where('id_guia_primer_tramo', $id)->get();
+            $oldItemsKey = [];
+            foreach ($vAntItems as $ol) {
+                if ($ol->id_particion_lote_mineral !== null) {
+                    $key = 'PART:' . $ol->id_particion_lote_mineral;
+                    $plm = DB::table('particion_lote_mineral')->where('id', $ol->id_particion_lote_mineral)->first();
+                    $label = $plm ? ($plm->correlativo ?? "Partición #{$ol->id_particion_lote_mineral}") : "Partición #{$ol->id_particion_lote_mineral}";
+                } else {
+                    $key = 'LOTE:' . $ol->id_lote_mineral;
+                    $lm = DB::table('lote_mineral')->where('id', $ol->id_lote_mineral)->first();
+                    $label = $lm ? ($lm->correlativo ?? "Lote #{$ol->id_lote_mineral}") : "Lote #{$ol->id_lote_mineral}";
                 }
+                $oldItemsKey[$key] = $label;
             }
-            $nombresNue = [];
-            foreach ($evidenciasGuardadas as $e) {
-                if (isset($e['nombre_original'])) {
-                    $nombresNue[] = $e['nombre_original'];
+
+            $newItemsKey = [];
+            foreach ($items as $nl) {
+                $idL = $nl['id_lote_mineral'] ?? null;
+                $idP = $nl['id_particion_lote_mineral'] ?? null;
+                if ($idP !== null && $idP !== '') {
+                    $key = 'PART:' . (int) $idP;
+                    $plm = DB::table('particion_lote_mineral')->where('id', (int) $idP)->first();
+                    $label = $plm ? ($plm->correlativo ?? "Partición #{$idP}") : "Partición #{$idP}";
+                } else {
+                    $key = 'LOTE:' . (int) $idL;
+                    $lm = DB::table('lote_mineral')->where('id', (int) $idL)->first();
+                    $label = $lm ? ($lm->correlativo ?? "Lote #{$idL}") : "Lote #{$idL}";
                 }
+                $newItemsKey[$key] = $label;
             }
 
-            sort($nombresAnt);
-            sort($nombresNue);
-
-            if ($nombresAnt !== $nombresNue) {
+            foreach (array_diff_key($newItemsKey, $oldItemsKey) as $key => $label) {
                 $cambios[] = [
-                    'campo_bd' => 'evidencias',
-                    'campo' => 'Evidencias',
-                    'valor_anterior' => ! empty($nombresAnt) ? implode(', ', $nombresAnt) : '— (sin evidencias)',
-                    'valor_nuevo' => ! empty($nombresNue) ? implode(', ', $nombresNue) : '— (sin evidencias)',
-                ];
-            }
-
-            // Comparar lotes asociados
-            $vAntLotes = DB::table('lote_guia')->where('id_guia_primer_tramo', $id)->get();
-            $oldLotesData = [];
-            foreach ($vAntLotes as $ol) {
-                $loteMineral = DB::table('lote_mineral')->where('id', $ol->id_lote_mineral)->first();
-                $correlativo = $loteMineral ? $loteMineral->correlativo : "Lote #$ol->id_lote_mineral";
-                $oldLotesData[$ol->id_lote_mineral] = [
-                    'correlativo' => $correlativo,
-                ];
-            }
-
-            $newLotesData = [];
-            foreach ($lotes as $nl) {
-                $idLoteMineral = (int) $nl['id_lote_mineral'];
-                $loteMineral = DB::table('lote_mineral')->where('id', $idLoteMineral)->first();
-                $correlativo = $loteMineral ? $loteMineral->correlativo : "Lote #$idLoteMineral";
-                $newLotesData[$idLoteMineral] = [
-                    'correlativo' => $correlativo,
-                ];
-            }
-
-            foreach (array_diff_key($newLotesData, $oldLotesData) as $idLote => $info) {
-                $cambios[] = [
-                    'campo_bd' => 'lote_asociado',
-                    'campo' => 'Lote asociado',
+                    'campo_bd' => 'item_asociado',
+                    'campo' => 'Item asociado',
                     'valor_anterior' => '—',
-                    'valor_nuevo' => "{$info['correlativo']}",
+                    'valor_nuevo' => $label,
                 ];
             }
 
-            foreach (array_diff_key($oldLotesData, $newLotesData) as $idLote => $info) {
+            foreach (array_diff_key($oldItemsKey, $newItemsKey) as $key => $label) {
                 $cambios[] = [
-                    'campo_bd' => 'lote_desasociado',
-                    'campo' => 'Lote desasociado',
-                    'valor_anterior' => "{$info['correlativo']}",
+                    'campo_bd' => 'item_desasociado',
+                    'campo' => 'Item desasociado',
+                    'valor_anterior' => $label,
                     'valor_nuevo' => '—',
                 ];
             }
@@ -435,47 +445,80 @@ class GuiasPrimerTramoService
                 'id_vehiculo_carreta' => $nuevosValoresCab['id_vehiculo_carreta'],
                 'id_empresa_transporte_carreta' => $nuevosValoresCab['id_empresa_transporte_carreta'],
                 'motivo_traslado' => $nuevosValoresCab['motivo_traslado'],
-                'evidencias' => ! empty($evidenciasGuardadas) ? json_encode(array_values($evidenciasGuardadas)) : null,
+                'condicion_ingreso' => $nuevosValoresCab['condicion_ingreso'],
                 'fecha_inicio_traslado' => $nuevosValoresCab['fecha_inicio_traslado'],
                 'fecha_emision' => $nuevosValoresCab['fecha_emision'],
                 'fecha_en_planta' => $nuevosValoresCab['fecha_en_planta'],
-                'serie_guia_remitente' => $nuevosValoresCab['serie_guia_remitente'],
-                'numero_guia_remitente' => $nuevosValoresCab['numero_guia_remitente'],
-                'serie_guia_transportista' => $nuevosValoresCab['serie_guia_transportista'],
-                'numero_guia_transportista' => $nuevosValoresCab['numero_guia_transportista'],
+                'guia_remitente' => $nuevosValoresCab['guia_remitente'],
+                'guia_transportista' => $nuevosValoresCab['guia_transportista'],
                 'sin_guia_transportista' => $nuevosValoresCab['sin_guia_transportista'],
+                'documentos' => json_encode($documentos),
                 'log_cambios' => json_encode($logActual),
             ]);
 
-            // Sincronizar lotes
-            $nuevosLotesIds = [];
-            foreach ($lotes as $lote) {
-                $idLoteMineral = (int) $lote['id_lote_mineral'];
+            // Sincronizar items (lote o partición)
+            $now = now()->toDateTimeString();
+            foreach ($items as $item) {
+                $idLoteMineral = isset($item['id_lote_mineral']) && $item['id_lote_mineral'] !== null
+                    ? (int) $item['id_lote_mineral']
+                    : null;
+                $idParticion = isset($item['id_particion_lote_mineral']) && $item['id_particion_lote_mineral'] !== null
+                    ? (int) $item['id_particion_lote_mineral']
+                    : null;
 
-                $nuevosLotesIds[] = $idLoteMineral;
-
-                $loteGuia = DB::table('lote_guia')
+                $existente = DB::table('lote_guia')
                     ->where('id_guia_primer_tramo', $id)
-                    ->where('id_lote_mineral', $idLoteMineral)
+                    ->where(function ($q) use ($idLoteMineral, $idParticion) {
+                        if ($idParticion !== null) {
+                            $q->where('id_particion_lote_mineral', $idParticion);
+                        } else {
+                            $q->where('id_lote_mineral', $idLoteMineral)
+                                ->whereNull('id_particion_lote_mineral');
+                        }
+                    })
                     ->first();
 
-                if (! $loteGuia) {
+                if (! $existente) {
                     DB::table('lote_guia')->insert([
                         'id_guia_primer_tramo' => $id,
                         'id_lote_mineral' => $idLoteMineral,
+                        'id_particion_lote_mineral' => $idParticion,
+                        'created_at' => $now,
                     ]);
                 }
             }
 
-            if (! empty($nuevosLotesIds)) {
-                DB::table('lote_guia')
-                    ->where('id_guia_primer_tramo', $id)
-                    ->whereNotIn('id_lote_mineral', $nuevosLotesIds)
-                    ->delete();
-            } else {
-                DB::table('lote_guia')
-                    ->where('id_guia_primer_tramo', $id)
-                    ->delete();
+            // Eliminar items que ya no están en la nueva lista
+            $pairsActuales = [];
+            foreach ($items as $item) {
+                $idLoteMineral = isset($item['id_lote_mineral']) && $item['id_lote_mineral'] !== null
+                    ? (int) $item['id_lote_mineral']
+                    : null;
+                $idParticion = isset($item['id_particion_lote_mineral']) && $item['id_particion_lote_mineral'] !== null
+                    ? (int) $item['id_particion_lote_mineral']
+                    : null;
+                $pairsActuales[] = ['lote' => $idLoteMineral, 'part' => $idParticion];
+            }
+
+            $existentes = DB::table('lote_guia')->where('id_guia_primer_tramo', $id)->get();
+            foreach ($existentes as $ex) {
+                $match = false;
+                foreach ($pairsActuales as $p) {
+                    if ($p['part'] !== null) {
+                        if ((int) $ex->id_particion_lote_mineral === $p['part']) {
+                            $match = true;
+                            break;
+                        }
+                    } else {
+                        if ((int) $ex->id_lote_mineral === $p['lote'] && $ex->id_particion_lote_mineral === null) {
+                            $match = true;
+                            break;
+                        }
+                    }
+                }
+                if (! $match) {
+                    DB::table('lote_guia')->where('id', $ex->id)->delete();
+                }
             }
 
             DB::commit();

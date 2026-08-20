@@ -104,4 +104,9 @@ class ValidacionDistribucionController
     {
         return response()->json(ValidacionDistribucionService::get_ticket_balanza($id));
     }
+
+    public function get_ticket_balanza_lote(int $idLote): JsonResponse
+    {
+        return response()->json(ValidacionDistribucionService::get_ticket_balanza_lote($idLote));
+    }
 }

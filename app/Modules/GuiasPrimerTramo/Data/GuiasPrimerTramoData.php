@@ -33,18 +33,15 @@ class GuiasPrimerTramoData
             vc.placa AS vehiculo_carreta_placa,
             gpt.id_empresa_transporte_carreta,
             etc.razon_social AS empresa_transporte_carreta_razon_social,
-            gpt.qr_token_transportista,
-            gpt.qr_token_remitente,
             gpt.motivo_traslado,
-            gpt.evidencias,
+            gpt.condicion_ingreso,
             gpt.fecha_inicio_traslado,
             gpt.fecha_emision,
             gpt.fecha_en_planta,
-            gpt.serie_guia_remitente,
-            gpt.numero_guia_remitente,
-            gpt.serie_guia_transportista,
-            gpt.numero_guia_transportista,
+            gpt.guia_remitente,
+            gpt.guia_transportista,
             gpt.sin_guia_transportista,
+            gpt.documentos,
             gpt.id_empleado_registro,
             gpt.log_cambios,
             gpt.estado,
@@ -79,10 +76,8 @@ class GuiasPrimerTramoData
         }
 
         if (! empty($filters['guia_remitente'])) {
-            $sql .= ' AND (CONCAT(gpt.serie_guia_remitente, "-", gpt.numero_guia_remitente) LIKE :guia_remitente
-                       OR gpt.numero_guia_remitente LIKE :guia_remitente_nro)';
+            $sql .= ' AND gpt.guia_remitente LIKE :guia_remitente';
             $params['guia_remitente'] = '%'.$filters['guia_remitente'].'%';
-            $params['guia_remitente_nro'] = '%'.$filters['guia_remitente'].'%';
         }
 
         $sql .= ' ORDER BY gpt.created_at DESC;';
@@ -90,7 +85,7 @@ class GuiasPrimerTramoData
         $rows = DB::select($sql, $params);
 
         foreach ($rows as $row) {
-            $row->evidencias = isset($row->evidencias) ? json_decode($row->evidencias, true) ?? [] : [];
+            $row->documentos = isset($row->documentos) ? json_decode($row->documentos, true) ?? [] : [];
             $row->log_cambios = isset($row->log_cambios) ? json_decode($row->log_cambios, true) ?? [] : [];
             $row->sin_guia_transportista = (bool) $row->sin_guia_transportista;
             $row->id_empleado_registro = $row->id_empleado_registro !== null ? (int) $row->id_empleado_registro : null;
@@ -138,7 +133,7 @@ class GuiasPrimerTramoData
             return null;
         }
 
-        $row->evidencias = isset($row->evidencias) ? json_decode($row->evidencias, true) ?? [] : [];
+        $row->documentos = isset($row->documentos) ? json_decode($row->documentos, true) ?? [] : [];
         $row->log_cambios = isset($row->log_cambios) ? json_decode($row->log_cambios, true) ?? [] : [];
         $row->sin_guia_transportista = (bool) $row->sin_guia_transportista;
         $row->id_empleado_registro = $row->id_empleado_registro !== null ? (int) $row->id_empleado_registro : null;
@@ -148,7 +143,7 @@ class GuiasPrimerTramoData
     }
 
     /**
-     * Obtener los lotes asociados a una guía con información del lote mineral.
+     * Obtener los items (lote o partición) asociados a una guía con shape unificado.
      */
     public static function get_lotes_guia(int $idGuia): array
     {
@@ -158,14 +153,20 @@ class GuiasPrimerTramoData
             lg.id_guia_primer_tramo,
             lg.id_lote_mineral,
             lg.id_particion_lote_mineral,
-            lm.correlativo AS lote_correlativo,
+            lg.created_at,
+            CASE
+                WHEN lg.id_particion_lote_mineral IS NOT NULL THEN "PARTICION"
+                ELSE "LOTE"
+            END AS tipo_item,
+            COALESCE(plm.correlativo, lm.correlativo) AS correlativo,
             lm.tipo_producto,
             lm.tipo_mineral,
-            lm.peso_inicial AS peso_bruto,
-            lm.peso_final AS tara,
-            lm.peso_neto
+            COALESCE(plm.peso_inicial, lm.peso_inicial) AS peso_inicial,
+            COALESCE(plm.peso_final, lm.peso_final) AS peso_final,
+            COALESCE(plm.peso_neto, lm.peso_neto) AS peso_neto
         FROM lote_guia lg
-        INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+        LEFT JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+        LEFT JOIN particion_lote_mineral plm ON plm.id = lg.id_particion_lote_mineral
         WHERE lg.id_guia_primer_tramo = :id_guia
         ORDER BY lg.id ASC
         ';
@@ -173,8 +174,8 @@ class GuiasPrimerTramoData
         $rows = DB::select($sql, ['id_guia' => $idGuia]);
 
         foreach ($rows as $row) {
-            $row->peso_bruto = $row->peso_bruto !== null ? (float) $row->peso_bruto : null;
-            $row->tara = $row->tara !== null ? (float) $row->tara : null;
+            $row->peso_inicial = $row->peso_inicial !== null ? (float) $row->peso_inicial : null;
+            $row->peso_final = $row->peso_final !== null ? (float) $row->peso_final : null;
             $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
         }
 

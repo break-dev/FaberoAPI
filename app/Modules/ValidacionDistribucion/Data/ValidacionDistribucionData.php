@@ -30,11 +30,13 @@ class ValidacionDistribucionData
                 v.placa AS vehiculo_placa,
                 v.capacidad AS vehiculo_capacidad,
                 (lm.peso_neto - v.capacidad) AS excedente,
+                tb.correlativo AS ticket_correlativo,
                 lm.created_at AS lote_fecha_creacion
             FROM lote_mineral lm
             INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
             INNER JOIN vehiculo v ON v.id = ru.id_vehiculo
-            WHERE 1 = 1
+            LEFT JOIN ticket_balanza tb ON tb.id = lm.id_ticket_balanza
+            WHERE (lm.estado IS NULL OR lm.estado != "Eliminado")
         ';
 
         $params = [];
@@ -242,7 +244,7 @@ class ValidacionDistribucionData
             lot.tipo_producto,
             lot.tipo_mineral,
             
-            CONCAT(COALESCE(gui.serie_guia_remitente, ''), IF(gui.serie_guia_remitente IS NOT NULL AND gui.serie_guia_remitente != '', '-', ''), COALESCE(gui.numero_guia_remitente, '')) AS guia_remision,
+            gui.guia_remitente AS guia_remision,
             
             pr.ruc AS ruc_proveedor,
             pr.razon_social AS proveedor,
@@ -252,7 +254,7 @@ class ValidacionDistribucionData
             
             emp.razon_social AS empresa_transporte,
             
-            CONCAT(COALESCE(gui.serie_guia_transportista, ''), IF(gui.serie_guia_transportista IS NOT NULL AND gui.serie_guia_transportista != '', '-', ''), COALESCE(gui.numero_guia_transportista, '')) AS guia_transporte,
+            CASE WHEN gui.sin_guia_transportista = 1 OR gui.guia_transportista IS NULL OR gui.guia_transportista = '' THEN NULL ELSE gui.guia_transportista END AS guia_transporte,
             
             sc.nombre AS nombre_sucursal,
             sc.direccion AS direccion_sucursal,
@@ -306,6 +308,97 @@ class ValidacionDistribucionData
         ";
 
         $item = DB::selectOne($sql, ['id_particion' => $idParticion]);
+        if ($item) {
+            $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
+            $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;
+            $item->peso_neto = $item->peso_neto !== null ? (float) $item->peso_neto : null;
+
+            return (array) $item;
+        }
+
+        return null;
+    }
+
+    /**
+     * Obtener la información completa para el Ticket de Balanza de un lote padre en formato PDF.
+     */
+    public static function get_ticket_balanza_lote(int $idLote): ?array
+    {
+        $sql = "
+        SELECT
+            lot.id AS id_lote,
+            lot.correlativo AS correlativo,
+            tb.id AS ticket_numero,
+            tb.created_at AS fecha_impresion,
+
+            vh.placa AS placa,
+
+            lot.tipo_producto,
+            lot.tipo_mineral,
+
+            gui.guia_remitente AS guia_remision,
+
+            pr.ruc AS ruc_proveedor,
+            pr.razon_social AS proveedor,
+
+            CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, '')) AS conductor,
+            cnd.numero_licencia AS licencia_conductor,
+
+            emp.razon_social AS empresa_transporte,
+
+            CASE WHEN gui.sin_guia_transportista = 1 OR gui.guia_transportista IS NULL OR gui.guia_transportista = '' THEN NULL ELSE gui.guia_transportista END AS guia_transporte,
+
+            sc.nombre AS nombre_sucursal,
+            sc.direccion AS direccion_sucursal,
+            dep_sc.nombre AS departamento_sucursal,
+            prv_sc.nombre AS provincia_sucursal,
+            dis_sc.nombre AS distrito_sucursal,
+
+            cns_origen.nombre          AS nombre_concesion,
+            cns_origen.codigo_reinfo   AS codigo_reinfo_concesion,
+            dep_cori.nombre            AS departamento_concesion,
+            prv_cori.nombre            AS provincia_concesion,
+            dis_cori.nombre            AS distrito_concesion,
+            zo.nombre AS zona_origen_nombre,
+
+            NULL AS observacion_peso_inicial,
+            NULL AS observacion_peso_final,
+
+            lot.fecha_hora_peso_inicial,
+            lot.peso_inicial AS peso_bruto,
+            lot.fecha_hora_peso_final,
+            lot.peso_final AS peso_tara,
+            lot.peso_neto AS peso_neto,
+
+            CONCAT(COALESCE(eml.apellido, ''), ' ', COALESCE(eml.nombre, '')) AS operador,
+            eml.dni AS dni_operador,
+            cr.nombre AS cargo_operador
+
+        FROM lote_mineral lot
+        LEFT JOIN ticket_balanza tb ON tb.id = lot.id_ticket_balanza
+        LEFT JOIN lote_guia ltg ON ltg.id_lote_mineral = lot.id
+        LEFT JOIN guia_primer_tramo gui ON gui.id = ltg.id_guia_primer_tramo
+        LEFT JOIN recepcion_unidad rec ON rec.id = lot.id_recepcion_unidad
+        LEFT JOIN vehiculo vh ON vh.id = COALESCE(rec.id_vehiculo, gui.id_vehiculo)
+        LEFT JOIN proveedor pr ON pr.id = COALESCE(rec.id_proveedor_minero, gui.id_proveedor, lot.id_proveedor_minero)
+        LEFT JOIN conductor cnd ON cnd.id = COALESCE(rec.id_conductor, gui.id_conductor)
+        LEFT JOIN empresa_transporte emp ON emp.id = COALESCE(rec.id_empresa_transporte, gui.id_empresa_transporte)
+        LEFT JOIN sucursal sc ON sc.id = COALESCE(rec.id_sucursal, gui.id_sucursal)
+        LEFT JOIN departamento dep_sc ON dep_sc.id = sc.id_departamento
+        LEFT JOIN provincia prv_sc ON prv_sc.id = sc.id_provincia
+        LEFT JOIN distrito dis_sc ON dis_sc.id = sc.id_distrito
+        LEFT JOIN concesion cns_origen ON cns_origen.id = gui.id_concesion
+        LEFT JOIN departamento dep_cori ON dep_cori.id = cns_origen.id_departamento
+        LEFT JOIN provincia    prv_cori ON prv_cori.id = cns_origen.id_provincia
+        LEFT JOIN distrito     dis_cori ON dis_cori.id = cns_origen.id_distrito
+        LEFT JOIN zona_origen zo ON zo.id = lot.id_zona_origen
+        LEFT JOIN empleado eml ON eml.id = rec.id_empleado_recepcion
+        LEFT JOIN cargo cr ON cr.id = eml.id_cargo
+        WHERE lot.id = :id_lote
+        LIMIT 1
+        ";
+
+        $item = DB::selectOne($sql, ['id_lote' => $idLote]);
         if ($item) {
             $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
             $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;

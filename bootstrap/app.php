@@ -38,6 +38,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 require base_path('app/Modules/Marcas/MarcasEndpoints.php');
                 require base_path('app/Endpoints/ConcesionesEndpoints.php');
                 require base_path('app/Modules/RecepcionUnidades/RecepcionUnidadesEndpoints.php');
+                require base_path('app/Modules/ProgramarRecepcion/ProgramarRecepcionEndpoints.php');
                 require base_path('app/Modules/RecepcionVisitas/RecepcionVisitasEndpoints.php');
                 require base_path('app/Modules/VisitaVehiculo/VisitaVehiculoEndpoints.php');
                 require base_path('app/Modules/RecepcionMineral/RecepcionMineralEndpoints.php');

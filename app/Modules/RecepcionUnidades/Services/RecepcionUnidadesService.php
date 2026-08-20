@@ -156,7 +156,7 @@ class RecepcionUnidadesService
     }
 
     /**
-     * Generar un nuevo lote para la recepción de unidad indicada.
+     * Generar un nuevo lote para la recepción indicada.
      */
     public static function crear_lote(int $id, int $idEmpleado): array
     {
@@ -181,67 +181,5 @@ class RecepcionUnidadesService
         }
 
         return ApiResponse::success(null, 'Lote eliminado correctamente');
-    }
-
-    /**
-     * Listar programaciones.
-     */
-    public static function get_programaciones(bool $soloPendientes = false): array
-    {
-        $data = RecepcionUnidadesData::get_programaciones($soloPendientes);
-
-        return ApiResponse::success($data, 'Programaciones obtenidas correctamente');
-    }
-
-    /**
-     * Detalle completo de una programación (cabecera + visita + vehículos + visitantes).
-     */
-    public static function get_programacion(int $id): array
-    {
-        $data = RecepcionUnidadesData::get_programacion_full($id);
-        if ($data === null) {
-            return ApiResponse::error('No se encontró la programación.', 404);
-        }
-
-        return ApiResponse::success($data, 'Programación obtenida correctamente');
-    }
-
-    /**
-     * Crear una programación de recepción de unidad.
-     */
-    public static function crear_programacion(array $data): array
-    {
-        $id = RecepcionUnidadesData::crear_programacion($data);
-        $nueva = RecepcionUnidadesData::get_recepcion_by_id($id);
-
-        return ApiResponse::success($nueva, 'Programación registrada correctamente');
-    }
-
-    /**
-     * Actualizar una programación (solo si NO está confirmada).
-     */
-    public static function actualizar_programacion(int $id, array $data): array
-    {
-        $ok = RecepcionUnidadesData::actualizar_programacion($id, $data);
-        if (! $ok) {
-            return ApiResponse::error('No se pudo actualizar la programación (puede estar confirmada o no existir).', 400);
-        }
-        $actualizada = RecepcionUnidadesData::get_recepcion_by_id($id);
-
-        return ApiResponse::success($actualizada, 'Programación actualizada correctamente');
-    }
-
-    /**
-     * Confirmar una programación. Marca la fila como 'En Planta' y registra id_empleado_recepcion.
-     */
-    public static function confirmar_programacion(int $id, int $idEmpleadoRecepcion, array $overrides = []): array
-    {
-        $ok = RecepcionUnidadesData::confirmar_programacion($id, $idEmpleadoRecepcion, $overrides);
-        if (! $ok) {
-            return ApiResponse::error('No se pudo confirmar la programación (ya estaba confirmada o no existe).', 400);
-        }
-        $actualizada = RecepcionUnidadesData::get_recepcion_by_id($id);
-
-        return ApiResponse::success($actualizada, 'Programación confirmada correctamente');
     }
 }

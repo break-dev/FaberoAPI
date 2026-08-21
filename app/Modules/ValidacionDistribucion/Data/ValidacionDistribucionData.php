@@ -25,6 +25,9 @@ class ValidacionDistribucionData
                 lm.fecha_hora_peso_inicial AS lote_fecha_peso_inicial,
                 lm.fecha_hora_peso_final AS lote_fecha_peso_final,
                 lm.tiene_particion,
+                lm.esta_validado AS lote_esta_validado,
+                lm.id_empleado_valida AS lote_id_empleado_valida,
+                lm.fecha_hora_validacion AS lote_fecha_hora_validacion,
                 ru.id AS id_recepcion_unidad,
                 v.id AS id_vehiculo,
                 v.placa AS vehiculo_placa,
@@ -64,6 +67,11 @@ class ValidacionDistribucionData
             $r->lote_peso_final = (float) ($r->lote_peso_final ?? 0);
             $r->lote_peso_inicial = (float) ($r->lote_peso_inicial ?? 0);
             $r->tiene_particion = (bool) $r->tiene_particion;
+            $r->lote_esta_validado = (bool) ($r->lote_esta_validado ?? 0);
+            $r->lote_id_empleado_valida = $r->lote_id_empleado_valida !== null ? (int) $r->lote_id_empleado_valida : null;
+            $r->lote_fecha_hora_validacion = $r->lote_fecha_hora_validacion !== null
+                ? (string) $r->lote_fecha_hora_validacion
+                : null;
             $r->id_recepcion_unidad = $r->id_recepcion_unidad !== null ? (int) $r->id_recepcion_unidad : null;
             $r->id_vehiculo = $r->id_vehiculo !== null ? (int) $r->id_vehiculo : null;
             $r->vehiculo_capacidad = $r->vehiculo_capacidad !== null ? (float) $r->vehiculo_capacidad : null;
@@ -143,6 +151,9 @@ class ValidacionDistribucionData
                 plm.fecha_hora_peso_final,
                 plm.peso_neto,
                 plm.estado,
+                plm.esta_validado,
+                plm.id_empleado_valida,
+                plm.fecha_hora_validacion,
                 {$bloqueadoExpr},
                 tb.correlativo AS ticket_correlativo,
                 ru.id_vehiculo,
@@ -175,6 +186,9 @@ class ValidacionDistribucionData
             $r->peso_final = (float) ($r->peso_final ?? 0);
             $r->peso_neto = (float) ($r->peso_neto ?? 0);
             $r->es_bloqueado = (bool) $r->es_bloqueado;
+            $r->esta_validado = (bool) ($r->esta_validado ?? 0);
+            $r->id_empleado_valida = $r->id_empleado_valida !== null ? (int) $r->id_empleado_valida : null;
+            $r->fecha_hora_validacion = $r->fecha_hora_validacion !== null ? (string) $r->fecha_hora_validacion : null;
             $r->id_vehiculo = $r->id_vehiculo !== null ? (int) $r->id_vehiculo : null;
             $r->id_conductor = $r->id_conductor !== null ? (int) $r->id_conductor : null;
             $r->id_sucursal = $r->id_sucursal !== null ? (int) $r->id_sucursal : null;
@@ -319,6 +333,218 @@ class ValidacionDistribucionData
         }
 
         return null;
+    }
+
+    /**
+     * Trae, en una sola query, las particiones activas + datos de recepcion + lote
+     * para evaluar reglas de validacion sobre uno o varios lotes.
+     *
+     * Devuelve un array indexado por id_lote_mineral con la estructura:
+     *   [
+     *     id_lote_mineral => [
+     *       'lote_correlativo' => string,
+     *       'peso_neto_lote' => float,
+     *       'suma_pesos_netos' => float,
+     *       'diferencia_suma' => float,
+     *       'cumple_suma' => bool,
+     *       'particiones' => [
+     *         id_particion => [
+     *           'id' => int,
+     *           'particion' => string,
+     *           'estado' => string,
+     *           'cumple_pesos' => bool,
+     *           'cumple_fechas' => bool,
+     *           'cumple_recepcion' => bool,
+     *           'cumple' => bool,
+     *           'campos_faltantes' => string[],
+     *         ],
+     *       ],
+     *       'lote_cumple' => bool,
+     *     ],
+     *   ]
+     *
+     * Reglas por particion:
+     * - cumple_pesos: peso_inicial > 0, peso_final > 0, peso_neto > 0.
+     * - cumple_fechas: fecha_hora_peso_inicial y fecha_hora_peso_final no nulos.
+     * - cumple_recepcion: id_vehiculo, id_conductor, id_empresa_transporte,
+     *                    id_tipo_vehiculo, id_proveedor_minero,
+     *                    fecha_hora_ingreso, fecha_hora_salida no nulos.
+     * - cumple: cumple_pesos AND cumple_fechas AND cumple_recepcion.
+     *
+     * Reglas a nivel lote:
+     * - cumple_suma: ABS(SUM(participaciones.peso_neto) - lote.peso_neto) <= 0.01.
+     * - lote_cumple: cumple_suma AND TODAS las particiones activas cumplen.
+     *
+     * @param  array<int, int>  $idLotes
+     * @return array<int, array<string, mixed>>
+     */
+    public static function get_evaluacion_validacion(array $idLotes): array
+    {
+        $idLotes = array_values(array_unique(array_filter(array_map('intval', $idLotes), fn ($v) => $v > 0)));
+        if (empty($idLotes)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($idLotes), '?'));
+        $sql = "
+            SELECT
+                plm.id AS id_particion,
+                plm.id_lote_mineral,
+                lm.correlativo AS lote_correlativo,
+                lm.peso_neto AS lote_peso_neto,
+                plm.particion,
+                plm.peso_inicial,
+                plm.peso_final,
+                plm.peso_neto,
+                plm.fecha_hora_peso_inicial,
+                plm.fecha_hora_peso_final,
+                plm.estado,
+                ru.id_vehiculo,
+                ru.id_conductor,
+                ru.id_empresa_transporte,
+                ru.id_tipo_vehiculo,
+                ru.id_proveedor_minero,
+                ru.fecha_hora_ingreso,
+                ru.fecha_hora_salida
+            FROM particion_lote_mineral plm
+            INNER JOIN lote_mineral lm ON lm.id = plm.id_lote_mineral
+            LEFT JOIN recepcion_unidad ru ON ru.id = plm.id_recepcion_unidad
+            WHERE plm.id_lote_mineral IN ({$placeholders})
+              AND plm.estado = 'Activo'
+            ORDER BY plm.id_lote_mineral ASC, plm.id ASC
+        ";
+
+        $rows = DB::select($sql, $idLotes);
+
+        // Acumular por lote.
+        $evaluacion = [];
+        foreach ($idLotes as $id) {
+            $evaluacion[$id] = [
+                'lote_correlativo' => null,
+                'peso_neto_lote' => 0.0,
+                'suma_pesos_netos' => 0.0,
+                'diferencia_suma' => 0.0,
+                'cumple_suma' => false,
+                'particiones' => [],
+                'lote_cumple' => false,
+            ];
+        }
+
+        foreach ($rows as $r) {
+            $idLote = (int) $r->id_lote_mineral;
+            $idPart = (int) $r->id_particion;
+
+            $evaluacion[$idLote]['lote_correlativo'] = (string) ($r->lote_correlativo ?? '');
+            $evaluacion[$idLote]['peso_neto_lote'] = (float) ($r->lote_peso_neto ?? 0);
+            $evaluacion[$idLote]['suma_pesos_netos'] += (float) ($r->peso_neto ?? 0);
+
+            $pesoInicial = (float) ($r->peso_inicial ?? 0);
+            $pesoFinal = (float) ($r->peso_final ?? 0);
+            $pesoNeto = (float) ($r->peso_neto ?? 0);
+
+            $camposFaltantes = [];
+
+            if ($pesoInicial <= 0) {
+                $camposFaltantes[] = 'peso_inicial';
+            }
+            if ($pesoFinal <= 0) {
+                $camposFaltantes[] = 'peso_final';
+            }
+            if ($pesoNeto <= 0) {
+                $camposFaltantes[] = 'peso_neto';
+            }
+
+            $cumplePesos = empty($camposFaltantes);
+
+            if (empty($r->fecha_hora_peso_inicial)) {
+                $camposFaltantes[] = 'fecha_hora_peso_inicial';
+            }
+            if (empty($r->fecha_hora_peso_final)) {
+                $camposFaltantes[] = 'fecha_hora_peso_final';
+            }
+
+            $cumpleFechas = $cumplePesos
+                && ! in_array('fecha_hora_peso_inicial', $camposFaltantes, true)
+                && ! in_array('fecha_hora_peso_final', $camposFaltantes, true);
+
+            if (empty($r->id_vehiculo)) {
+                $camposFaltantes[] = 'recepcion.id_vehiculo';
+            }
+            if (empty($r->id_conductor)) {
+                $camposFaltantes[] = 'recepcion.id_conductor';
+            }
+            if (empty($r->id_empresa_transporte)) {
+                $camposFaltantes[] = 'recepcion.id_empresa_transporte';
+            }
+            if (empty($r->id_tipo_vehiculo)) {
+                $camposFaltantes[] = 'recepcion.id_tipo_vehiculo';
+            }
+            if (empty($r->id_proveedor_minero)) {
+                $camposFaltantes[] = 'recepcion.id_proveedor_minero';
+            }
+            if (empty($r->fecha_hora_ingreso)) {
+                $camposFaltantes[] = 'recepcion.fecha_hora_ingreso';
+            }
+            if (empty($r->fecha_hora_salida)) {
+                $camposFaltantes[] = 'recepcion.fecha_hora_salida';
+            }
+
+            $cumpleRecepcion = ! in_array('recepcion.id_vehiculo', $camposFaltantes, true)
+                && ! in_array('recepcion.id_conductor', $camposFaltantes, true)
+                && ! in_array('recepcion.id_empresa_transporte', $camposFaltantes, true)
+                && ! in_array('recepcion.id_tipo_vehiculo', $camposFaltantes, true)
+                && ! in_array('recepcion.id_proveedor_minero', $camposFaltantes, true)
+                && ! in_array('recepcion.fecha_hora_ingreso', $camposFaltantes, true)
+                && ! in_array('recepcion.fecha_hora_salida', $camposFaltantes, true);
+
+            $cumple = $cumplePesos && $cumpleFechas && $cumpleRecepcion;
+
+            $evaluacion[$idLote]['particiones'][$idPart] = [
+                'id' => $idPart,
+                'particion' => (string) ($r->particion ?? ''),
+                'estado' => (string) ($r->estado ?? ''),
+                'cumple_pesos' => $cumplePesos,
+                'cumple_fechas' => $cumpleFechas,
+                'cumple_recepcion' => $cumpleRecepcion,
+                'cumple' => $cumple,
+                'campos_faltantes' => array_values(array_unique($camposFaltantes)),
+            ];
+        }
+
+        // Reglas a nivel lote.
+        foreach ($evaluacion as $idLote => &$eval) {
+            $suma = round((float) $eval['suma_pesos_netos'], 2);
+            $pesoLote = round((float) $eval['peso_neto_lote'], 2);
+            $diferencia = round(abs($pesoLote - $suma), 2);
+
+            $eval['suma_pesos_netos'] = $suma;
+            $eval['diferencia_suma'] = $diferencia;
+            $eval['cumple_suma'] = $diferencia <= 0.01;
+
+            $particionesActivas = $eval['particiones'];
+            $todasCumplen = ! empty($particionesActivas)
+                && array_reduce(
+                    $particionesActivas,
+                    fn ($carry, $p) => $carry && $p['cumple'],
+                    true,
+                );
+
+            $eval['lote_cumple'] = $eval['cumple_suma'] && $todasCumplen;
+        }
+        unset($eval);
+
+        // Si un lote no tiene particiones activas (no se incluyo en el WHERE),
+        // marcamos cumple_suma=true si lote.peso_neto=0 (caso degenerado) y lote_cumple=false.
+        // El caller decidira si permite o no validar lotes sin particiones.
+        foreach ($evaluacion as $idLote => &$eval) {
+            if (empty($eval['particiones'])) {
+                $eval['cumple_suma'] = round((float) $eval['peso_neto_lote'], 2) === 0.0;
+                $eval['lote_cumple'] = false;
+            }
+        }
+        unset($eval);
+
+        return $evaluacion;
     }
 
     /**

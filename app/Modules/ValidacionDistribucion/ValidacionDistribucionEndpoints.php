@@ -15,5 +15,9 @@ Route::middleware('auth.jwt.custom')->group(function () {
         Route::post('/particiones/{id}/peso-final', 'registrar_peso_final');
         Route::get('/particiones/{id}/ticket-balanza', 'get_ticket_balanza');
         Route::get('/lotes/{idLote}/ticket-balanza', 'get_ticket_balanza_lote');
+        Route::get('/lotes/{idLote}/evaluacion-validacion', 'get_evaluacion_validacion_lote');
+        Route::post('/particiones/{id}/validar', 'validar_particion');
+        Route::post('/lotes/{idLote}/validar', 'validar_lote');
+        Route::post('/lotes/validar', 'validar_lotes');
     });
 });

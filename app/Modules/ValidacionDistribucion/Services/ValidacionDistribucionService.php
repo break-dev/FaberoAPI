@@ -537,4 +537,257 @@ class ValidacionDistribucionService
 
         return ApiResponse::success($data, 'Ticket de balanza del lote obtenido correctamente.');
     }
+
+    /**
+     * Evalua la factibilidad de validacion de un lote sin persistir.
+     * Reutilizado por validar_lote y validar_particion para evitar N+1.
+     */
+    public static function get_evaluacion_validacion_lote(int $idLote): array
+    {
+        $eval = ValidacionDistribucionData::get_evaluacion_validacion([$idLote]);
+        if (! isset($eval[$idLote])) {
+            return ApiResponse::error('No se encontró el lote o no tiene particiones activas.', 404);
+        }
+
+        return ApiResponse::success($eval[$idLote], 'Evaluación de validación obtenida correctamente.');
+    }
+
+    /**
+     * Valida una particion individual. El backend evalua el lote completo
+     * (incluyendo la suma de pesos netos) y solo persiste la marca si todo cumple.
+     *
+     * @param  array{id_empleado: int}  $params
+     */
+    public static function validar_particion(int $idParticion, array $params): array
+    {
+        $idEmpleado = (int) ($params['id_empleado'] ?? 0);
+
+        $particion = ParticionLoteMineral::find($idParticion);
+        if (! $particion) {
+            return ApiResponse::error('No se encontró la partición.', 404);
+        }
+        $idLote = (int) $particion->id_lote_mineral;
+
+        $evaluaciones = ValidacionDistribucionData::get_evaluacion_validacion([$idLote]);
+        $eval = $evaluaciones[$idLote] ?? null;
+        if (! $eval || empty($eval['particiones'][$idParticion])) {
+            return ApiResponse::error('La partición no está activa o no pertenece a un lote evaluable.', 422);
+        }
+
+        $partEval = $eval['particiones'][$idParticion];
+        if (! $partEval['cumple']) {
+            return ApiResponse::error('La partición no cumple los requisitos de validación.', 422, [
+                'particion' => $partEval,
+                'lote_cumple_suma' => $eval['cumple_suma'],
+            ]);
+        }
+
+        if (! $eval['cumple_suma']) {
+            return ApiResponse::error('La suma de pesos netos de las particiones no cuadra con el peso del lote padre.', 422, [
+                'diferencia_suma' => $eval['diferencia_suma'],
+                'suma_pesos_netos' => $eval['suma_pesos_netos'],
+                'peso_neto_lote' => $eval['peso_neto_lote'],
+            ]);
+        }
+
+        $now = now()->toDateTimeString();
+
+        try {
+            DB::beginTransaction();
+
+            DB::table('particion_lote_mineral')->where('id', $idParticion)->update([
+                'esta_validado' => 1,
+                'id_empleado_valida' => $idEmpleado,
+                'fecha_hora_validacion' => $now,
+            ]);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return ApiResponse::error('Error al validar la partición: '.$e->getMessage(), 500);
+        }
+
+        $actualizada = ParticionLoteMineral::find($idParticion);
+
+        return ApiResponse::success($actualizada, 'Partición validada correctamente.');
+    }
+
+    /**
+     * Valida un lote completo: marca todas sus particiones activas + el propio lote.
+     *
+     * @param  array{id_empleado: int}  $params
+     */
+    public static function validar_lote(int $idLote, array $params): array
+    {
+        $idEmpleado = (int) ($params['id_empleado'] ?? 0);
+
+        $lote = DB::table('lote_mineral')->where('id', $idLote)->first();
+        if (! $lote) {
+            return ApiResponse::error('No se encontró el lote.', 404);
+        }
+
+        $evaluaciones = ValidacionDistribucionData::get_evaluacion_validacion([$idLote]);
+        $eval = $evaluaciones[$idLote] ?? null;
+        if (! $eval) {
+            return ApiResponse::error('No se pudo evaluar el lote.', 422);
+        }
+
+        if (! $eval['lote_cumple']) {
+            return ApiResponse::error('El lote no cumple los requisitos de validación.', 422, [
+                'evaluacion' => $eval,
+            ]);
+        }
+
+        $now = now()->toDateTimeString();
+        $idParticiones = array_map('intval', array_keys($eval['particiones']));
+
+        try {
+            DB::beginTransaction();
+
+            if (! empty($idParticiones)) {
+                $placeholders = implode(',', array_fill(0, count($idParticiones), '?'));
+                DB::statement(
+                    "UPDATE particion_lote_mineral
+                     SET esta_validado = 1, id_empleado_valida = ?, fecha_hora_validacion = ?
+                     WHERE id IN ({$placeholders})",
+                    array_merge([$idEmpleado, $now], $idParticiones)
+                );
+            }
+
+            DB::table('lote_mineral')->where('id', $idLote)->update([
+                'esta_validado' => 1,
+                'id_empleado_valida' => $idEmpleado,
+                'fecha_hora_validacion' => $now,
+            ]);
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return ApiResponse::error('Error al validar el lote: '.$e->getMessage(), 500);
+        }
+
+        $evaluacionesPost = ValidacionDistribucionData::get_evaluacion_validacion([$idLote]);
+
+        return ApiResponse::success([
+            'id_lote_mineral' => $idLote,
+            'evaluacion' => $evaluacionesPost[$idLote] ?? $eval,
+        ], 'Lote validado correctamente.');
+    }
+
+    /**
+     * Validacion multiple: procesa cada lote individualmente.
+     * Solo persiste los lotes que cumplen; los que no cumplen se devuelven como omitidos.
+     *
+     * @param  array{id_lotes: array<int, int>, id_empleado: int}  $data
+     */
+    public static function validar_lotes(array $data): array
+    {
+        $idEmpleado = (int) ($data['id_empleado'] ?? 0);
+
+        $idLotes = array_values(array_unique(array_filter(
+            array_map('intval', $data['id_lotes'] ?? []),
+            fn ($v) => $v > 0,
+        )));
+
+        if (empty($idLotes)) {
+            return ApiResponse::error('No se proporcionaron lotes para validar.', 422);
+        }
+
+        $evaluaciones = ValidacionDistribucionData::get_evaluacion_validacion($idLotes);
+
+        $validados = [];
+        $omitidos = [];
+
+        $now = now()->toDateTimeString();
+
+        try {
+            DB::beginTransaction();
+
+            foreach ($idLotes as $idLote) {
+                $eval = $evaluaciones[$idLote] ?? null;
+                if (! $eval || ! $eval['lote_cumple']) {
+                    $omitidos[] = [
+                        'id_lote_mineral' => $idLote,
+                        'lote_correlativo' => $eval['lote_correlativo'] ?? null,
+                        'razones' => self::razonesDeEvaluacion($eval),
+                    ];
+                    continue;
+                }
+
+                $idParticiones = array_map('intval', array_keys($eval['particiones']));
+                if (! empty($idParticiones)) {
+                    $placeholders = implode(',', array_fill(0, count($idParticiones), '?'));
+                    DB::statement(
+                        "UPDATE particion_lote_mineral
+                         SET esta_validado = 1, id_empleado_valida = ?, fecha_hora_validacion = ?
+                         WHERE id IN ({$placeholders})",
+                        array_merge([$idEmpleado, $now], $idParticiones)
+                    );
+                }
+
+                DB::table('lote_mineral')->where('id', $idLote)->update([
+                    'esta_validado' => 1,
+                    'id_empleado_valida' => $idEmpleado,
+                    'fecha_hora_validacion' => $now,
+                ]);
+
+                $validados[] = $idLote;
+            }
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return ApiResponse::error('Error al validar los lotes: '.$e->getMessage(), 500);
+        }
+
+        return ApiResponse::success([
+            'validados' => $validados,
+            'omitidos' => $omitidos,
+        ], 'Proceso de validación múltiple finalizado.');
+    }
+
+    /**
+     * Convierte una evaluacion en una lista legible de razones (particion + campos faltantes).
+     * Usado en validar_lotes para devolver motivos claros de por que un lote fue omitido.
+     *
+     * @param  array<string, mixed>|null  $eval
+     * @return array<int, string>
+     */
+    private static function razonesDeEvaluacion(?array $eval): array
+    {
+        if (! $eval) {
+            return ['Lote no encontrado o sin particiones activas.'];
+        }
+
+        $razones = [];
+
+        if (! $eval['cumple_suma']) {
+            $razones[] = sprintf(
+                'La suma de pesos netos (%.2f) no cuadra con el peso del lote padre (%.2f). Diferencia: %.2f.',
+                $eval['suma_pesos_netos'],
+                $eval['peso_neto_lote'],
+                $eval['diferencia_suma'],
+            );
+        }
+
+        foreach ($eval['particiones'] as $p) {
+            if ($p['cumple']) {
+                continue;
+            }
+            $razones[] = sprintf(
+                'Partición %s: faltan %s.',
+                $p['particion'],
+                implode(', ', $p['campos_faltantes']),
+            );
+        }
+
+        if (empty($razones)) {
+            $razones[] = 'Lote sin requisitos pendientes identificados.';
+        }
+
+        return $razones;
+    }
 }

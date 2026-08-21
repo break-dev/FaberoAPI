@@ -109,4 +109,42 @@ class ValidacionDistribucionController
     {
         return response()->json(ValidacionDistribucionService::get_ticket_balanza_lote($idLote));
     }
+
+    public function get_evaluacion_validacion_lote(int $idLote): JsonResponse
+    {
+        return response()->json(ValidacionDistribucionService::get_evaluacion_validacion_lote($idLote));
+    }
+
+    public function validar_particion(Request $request, int $id): JsonResponse
+    {
+        $authUser = $request->attributes->get('auth_user');
+        $idEmpleado = (int) ($authUser->id_empleado ?? $authUser->id_usuario ?? 0);
+
+        return response()->json(ValidacionDistribucionService::validar_particion($id, [
+            'id_empleado' => $idEmpleado,
+        ]));
+    }
+
+    public function validar_lote(Request $request, int $idLote): JsonResponse
+    {
+        $authUser = $request->attributes->get('auth_user');
+        $idEmpleado = (int) ($authUser->id_empleado ?? $authUser->id_usuario ?? 0);
+
+        return response()->json(ValidacionDistribucionService::validar_lote($idLote, [
+            'id_empleado' => $idEmpleado,
+        ]));
+    }
+
+    public function validar_lotes(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'id_lotes' => 'required|array|min:1',
+            'id_lotes.*' => 'required|integer|min:1',
+        ]);
+
+        $authUser = $request->attributes->get('auth_user');
+        $data['id_empleado'] = (int) ($authUser->id_empleado ?? $authUser->id_usuario ?? 0);
+
+        return response()->json(ValidacionDistribucionService::validar_lotes($data));
+    }
 }

@@ -62,22 +62,22 @@ class RecepcionMineralController extends Controller
         $request->validate([
             'condicion_ingreso' => ['required', Rule::enum(CondicionIngreso::class)],
             'id_empresa' => ['required', 'integer', 'exists:empresa,id'],
-            'correlativo_manual' => 'nullable|string|max:20',
-            'numero_correlativo_manual' => 'nullable|integer|min:1',
+            'con_codigo_manual' => ['required', 'boolean'],
+            'codigo_manual' => 'nullable|string|max:20',
         ]);
 
         $condicionIngreso = $request->input('condicion_ingreso');
         $idEmpresa = (int) $request->input('id_empresa');
-        $correlativoManual = $request->input('correlativo_manual');
-        $numeroCorrelativoManual = $request->input('numero_correlativo_manual');
+        $conCodigoManual = $request->boolean('con_codigo_manual');
+        $codigoManual = $conCodigoManual ? $request->input('codigo_manual') : null;
 
         return response()->json(RecepcionMineralService::crear_lote(
             $id,
             (int) $authUser->id_empleado,
             $condicionIngreso,
             $idEmpresa,
-            $correlativoManual,
-            $numeroCorrelativoManual !== null ? (int) $numeroCorrelativoManual : null,
+            $conCodigoManual,
+            $codigoManual,
         ));
     }
 
@@ -185,30 +185,6 @@ class RecepcionMineralController extends Controller
     public function cerrar_proceso(Request $request, int $id): JsonResponse
     {
         return response()->json(RecepcionMineralService::cerrar_proceso($id));
-    }
-
-    /**
-     * Registrar una unidad ficticia
-     */
-    public function crear_unidad_ficticia(Request $request): JsonResponse
-    {
-        $request->validate([
-            'id_sucursal' => 'required|integer|exists:sucursal,id',
-            'fecha_hora_ingreso' => 'nullable|date',
-        ]);
-
-        $authUser = $request->attributes->get('auth_user');
-        if (! $authUser || empty($authUser->id_empleado)) {
-            return response()->json(ApiResponse::error('No se pudo determinar el empleado logueado.'), 401);
-        }
-
-        $data = [
-            'id_empleado_registro' => (int) $authUser->id_empleado,
-            'id_sucursal' => (int) $request->input('id_sucursal'),
-            'fecha_hora_ingreso' => $request->input('fecha_hora_ingreso'),
-        ];
-
-        return response()->json(RecepcionMineralService::crear_unidad_ficticia($data));
     }
 
     /**

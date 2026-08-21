@@ -205,6 +205,19 @@ class ValorizacionCompraAuxData
             LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
             WHERE COALESCE(gpt.id_proveedor, lm.id_proveedor_minero) = :id_proveedor
               AND lm.con_valor_comercial = 1
+              AND lm.peso_neto > 0
+              AND (
+                  lm.tiene_particion = 0
+                  OR COALESCE(
+                      (
+                          SELECT SUM(plm.peso_neto)
+                          FROM particion_lote_mineral plm
+                          WHERE plm.id_lote_mineral = lm.id
+                            AND plm.peso_neto > 0
+                      ),
+                      0
+                  ) = lm.peso_neto
+              )
               AND (
                   lg.id NOT IN (
                       SELECT vcd.id_lote_guia

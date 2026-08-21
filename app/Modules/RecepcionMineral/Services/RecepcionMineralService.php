@@ -159,8 +159,8 @@ class RecepcionMineralService
         int $idEmpleadoRegistro,
         string $condicionIngreso,
         int $idEmpresa,
-        ?string $correlativoManual = null,
-        ?int $numeroCorrelativoManual = null,
+        bool $conCodigoManual = false,
+        ?string $codigoManual = null,
     ): array {
         $recepcion = RecepcionUnidad::find($id);
         if (! $recepcion) {
@@ -173,9 +173,9 @@ class RecepcionMineralService
         }
 
         // Generar correlativo y número: manual o automático
-        if ($correlativoManual !== null && $numeroCorrelativoManual !== null) {
-            $correlativo = $correlativoManual;
-            $numeroCorrelativo = $numeroCorrelativoManual;
+        if ($conCodigoManual) {
+            $correlativo = $codigoManual;
+            $numeroCorrelativo = null;
         } else {
             $isComercial = $condicionIngreso === CondicionIngreso::Comercializacion->value;
             $prefijo = $isComercial ? 'FB' : 'LOT';
@@ -219,6 +219,7 @@ class RecepcionMineralService
             'condicion_ingreso' => $condicionIngreso,
             'correlativo' => $correlativo,
             'numero_correlativo' => $numeroCorrelativo,
+            'con_codigo_manual' => $conCodigoManual,
             'id_ticket_balanza' => $ticketId,
             'estado_leyes' => EstadoLeyes::Pendiente->value,
             'estado' => EstadoBase::Activo->value,
@@ -366,6 +367,7 @@ class RecepcionMineralService
         $lote->peso_final = $pesoFinal;
         $lote->fecha_hora_peso_final = now()->toDateTimeString();
         $lote->peso_neto = $pesoInicial - $pesoFinal; // Peso Inicial - Peso Final
+        $lote->peso_actual = $lote->peso_neto; // Mantener peso_actual sincronizado con peso_neto
         $lote->evidencias = $evidenciasGuardadas;
         $lote->save();
 
@@ -400,45 +402,6 @@ class RecepcionMineralService
         $recepcion->save();
 
         return ApiResponse::success(null, 'Proceso de balanza cerrado correctamente.');
-    }
-
-    /**
-     * Registrar una unidad ficticia
-     */
-    public static function crear_unidad_ficticia(array $data): array
-    {
-        // 1. Crear un vehículo ficticio en la BD
-        $uniqueId = rand(1000, 9999);
-        $plateNum = date('ymd').$uniqueId;
-        $vehiculo = Vehiculo::create([
-            'placa' => 'FICT-'.$plateNum,
-            'estado' => 'Activo',
-        ]);
-
-        // 2. Resolver la fecha/hora de ingreso (provista o ahora)
-        $fechaHoraIngreso = ! empty($data['fecha_hora_ingreso'])
-            ? date('Y-m-d H:i:s', strtotime($data['fecha_hora_ingreso']))
-            : now()->toDateTimeString();
-
-        // 3. Crear el registro de recepcion_unidad vacío
-        $recepcion = RecepcionUnidad::create([
-            'id_empleado_recepcion' => $data['id_empleado_registro'],
-            'id_vehiculo' => $vehiculo->id,
-            'id_empresa_transporte' => null,
-            'id_tipo_vehiculo' => null,
-            'id_conductor' => null,
-            'tipo_ingreso' => 'Ficticio',
-            'segunda_placa' => null,
-            'fecha_hora_ingreso' => $fechaHoraIngreso,
-            'estado' => 'En Planta',
-            'estado_pesaje' => 'Sin Pesar',
-            'id_sucursal' => $data['id_sucursal'],
-            'es_recepcion_ficticia' => true,
-        ]);
-
-        $nuevaRecepcion = RecepcionMineralData::get_recepcion_by_id_with_lotes($recepcion->id);
-
-        return ApiResponse::success($nuevaRecepcion, 'Unidad ficticia creada correctamente.');
     }
 
     /**
@@ -479,15 +442,6 @@ class RecepcionMineralService
                 ? ['id_empresa' => $lote->id_empresa, 'condicion_ingreso' => CondicionIngreso::Comercializacion->value]
                 : ['condicion_ingreso' => ['!=', CondicionIngreso::Comercializacion->value]];
 
-            // Generar correlativo usando CorrelativoHelper
-            $correlativoData = CorrelativoHelper::generar(
-                tabla: 'lote_mineral',
-                prefijo: $prefijo,
-                filtros: $filtros,
-                longitudCeros: 5,
-                reseteo: Periodo::Anual
-            );
-
             $cambios[] = [
                 'campo_bd' => 'condicion_ingreso',
                 'campo' => 'Condición de ingreso',
@@ -495,16 +449,30 @@ class RecepcionMineralService
                 'valor_nuevo' => $newCondicion,
             ];
 
-            $cambios[] = [
-                'campo_bd' => 'correlativo',
-                'campo' => 'Correlativo del lote',
-                'valor_anterior' => $lote->correlativo,
-                'valor_nuevo' => $correlativoData['correlativo'],
-            ];
+            // Sólo regenerar correlativo si el lote NO fue creado con código manual.
+            // Si tiene con_codigo_manual=true, preservamos correlativo y numero_correlativo tal cual.
+            if (! $lote->con_codigo_manual) {
+                // Generar correlativo usando CorrelativoHelper
+                $correlativoData = CorrelativoHelper::generar(
+                    tabla: 'lote_mineral',
+                    prefijo: $prefijo,
+                    filtros: $filtros,
+                    longitudCeros: 5,
+                    reseteo: Periodo::Anual
+                );
+
+                $cambios[] = [
+                    'campo_bd' => 'correlativo',
+                    'campo' => 'Correlativo del lote',
+                    'valor_anterior' => $lote->correlativo,
+                    'valor_nuevo' => $correlativoData['correlativo'],
+                ];
+
+                $lote->correlativo = $correlativoData['correlativo'];
+                $lote->numero_correlativo = $correlativoData['numero_correlativo'];
+            }
 
             $lote->condicion_ingreso = $newCondicion;
-            $lote->correlativo = $correlativoData['correlativo'];
-            $lote->numero_correlativo = $correlativoData['numero_correlativo'];
         }
 
         $ru = \DB::table('recepcion_unidad')->where('id', $lote->id_recepcion_unidad)->first();
@@ -645,8 +613,10 @@ class RecepcionMineralService
         // Calcular peso neto si ambos pesos existen
         if ($lote->peso_inicial !== null && $lote->peso_final !== null) {
             $lote->peso_neto = $lote->peso_inicial - $lote->peso_final;
+            $lote->peso_actual = $lote->peso_neto; // Mantener peso_actual sincronizado con peso_neto
         } else {
             $lote->peso_neto = null;
+            $lote->peso_actual = null;
         }
 
         $lote->evidencias = $evidenciasGuardadas;

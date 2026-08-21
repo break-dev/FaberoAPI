@@ -8,7 +8,6 @@ Route::middleware('auth.jwt.custom')->group(function () {
         Route::get('/', 'get_recepciones_mineral');
         Route::get('/resumen', 'get_resumen_balanza');
         Route::get('/resumen/filtros', 'get_resumen_filtros');
-        Route::post('/ficticio', 'crear_unidad_ficticia');
         Route::put('/{id}/iniciar', 'iniciar_pesaje');
         Route::put('/{id}/validar', 'validar_campo');
         Route::post('/{id}/lotes', 'crear_lote');

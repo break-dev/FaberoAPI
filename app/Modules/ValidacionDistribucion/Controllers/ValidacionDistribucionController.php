@@ -3,7 +3,6 @@
 namespace App\Modules\ValidacionDistribucion\Controllers;
 
 use App\Modules\ValidacionDistribucion\Services\ValidacionDistribucionService;
-use App\Shared\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -95,6 +94,7 @@ class ValidacionDistribucionController
             'recepcion.id_tipo_vehiculo' => 'nullable|integer',
             'recepcion.id_proveedor_minero' => 'nullable|integer',
             'recepcion.fecha_hora_ingreso' => 'nullable|date',
+            'recepcion.fecha_hora_salida' => 'nullable|date',
         ]);
 
         return response()->json(ValidacionDistribucionService::update_particion($id, $data));

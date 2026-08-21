@@ -97,6 +97,7 @@ class ValidacionDistribucionData
         ';
 
         $row = DB::selectOne($sql, ['id' => $idLote]);
+
         return $row ?: null;
     }
 
@@ -151,6 +152,7 @@ class ValidacionDistribucionData
                 ru.id_tipo_vehiculo,
                 ru.id_proveedor_minero,
                 ru.fecha_hora_ingreso,
+                ru.fecha_hora_salida,
                 v.placa AS vehiculo_placa,
                 v.tara AS vehiculo_tara,
                 v.capacidad AS vehiculo_capacidad
@@ -220,7 +222,7 @@ class ValidacionDistribucionData
         $n++;
         while ($n > 0) {
             $n--;
-            $letra = chr(65 + ($n % 26)) . $letra;
+            $letra = chr(65 + ($n % 26)).$letra;
             $n = intdiv($n, 26);
         }
 

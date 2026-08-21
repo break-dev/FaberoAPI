@@ -218,9 +218,11 @@ class ValidacionDistribucionService
             return ApiResponse::error('Error al crear la partición: '.$e->getMessage(), 500);
         }
 
+        self::recalcularPesosNoBloqueadas($idLote);
+
         $particion = ParticionLoteMineral::find($idPart);
 
-        return ApiResponse::success($particion, 'Partición creada correctamente con valores en cero. El frontend se encarga del auto-balance.');
+        return ApiResponse::success($particion, 'Partición creada correctamente con valores en cero. El backend redistribuyó los pesos entre las particiones no bloqueadas.');
     }
 
     /**
@@ -323,6 +325,12 @@ class ValidacionDistribucionService
         }
 
         $idLote = (int) $particion->id_lote_mineral;
+        $estadoAnterior = (string) ($particion->estado?->value ?? '');
+        $bloqueadoAnterior = ValidacionDistribucionData::has_column_es_bloqueado()
+            ? (bool) $particion->es_bloqueado
+            : false;
+        $estadoCambio = false;
+        $bloqueoCambio = false;
 
         try {
             DB::beginTransaction();
@@ -344,9 +352,16 @@ class ValidacionDistribucionService
                 $updateFields['fecha_hora_peso_final'] = date('Y-m-d H:i:s', strtotime($data['fecha_hora_peso_final']));
             }
             if (array_key_exists('es_bloqueado', $data) && ValidacionDistribucionData::has_column_es_bloqueado()) {
-                $updateFields['es_bloqueado'] = $data['es_bloqueado'] ? 1 : 0;
+                $nuevoBloqueado = $data['es_bloqueado'] ? true : false;
+                if ($nuevoBloqueado !== $bloqueadoAnterior) {
+                    $bloqueoCambio = true;
+                }
+                $updateFields['es_bloqueado'] = $nuevoBloqueado ? 1 : 0;
             }
             if (array_key_exists('estado', $data) && $data['estado'] !== null) {
+                if ((string) $data['estado'] !== $estadoAnterior) {
+                    $estadoCambio = true;
+                }
                 $updateFields['estado'] = $data['estado'];
             }
 
@@ -378,6 +393,9 @@ class ValidacionDistribucionService
                 if (array_key_exists('fecha_hora_ingreso', $recep) && $recep['fecha_hora_ingreso'] !== null) {
                     $recepUpdate['fecha_hora_ingreso'] = date('Y-m-d H:i:s', strtotime($recep['fecha_hora_ingreso']));
                 }
+                if (array_key_exists('fecha_hora_salida', $recep) && $recep['fecha_hora_salida'] !== null) {
+                    $recepUpdate['fecha_hora_salida'] = date('Y-m-d H:i:s', strtotime($recep['fecha_hora_salida']));
+                }
                 if (! empty($recepUpdate)) {
                     DB::table('recepcion_unidad')->where('id', (int) $particion->id_recepcion_unidad)->update($recepUpdate);
                 }
@@ -390,9 +408,99 @@ class ValidacionDistribucionService
             return ApiResponse::error('Error al actualizar la partición: '.$e->getMessage(), 500);
         }
 
+        if ($estadoCambio || $bloqueoCambio) {
+            self::recalcularPesosNoBloqueadas($idLote);
+        }
+
         $particiones = ValidacionDistribucionData::get_particiones($idLote);
 
         return ApiResponse::success($particiones, 'Partición actualizada correctamente.');
+    }
+
+    /**
+     * Redistribuye el peso_neto del lote entre las particiones NO bloqueadas
+     * y activas. Las bloqueadas conservan su peso actual.
+     *
+     * Reglas:
+     * - locked activas: conservadas.
+     * - unlocked activas: se reparte `lote.peso_neto - SUM(locked)` entre todas
+     *   equitativamente (la última recibe el ajuste por redondeo).
+     * - peso_final NO se modifica; peso_inicial se ajusta para mantener la
+     *   invariante `peso_inicial = peso_final + peso_neto`.
+     */
+    public static function recalcularPesosNoBloqueadas(int $idLote): void
+    {
+        $lote = DB::table('lote_mineral')->where('id', $idLote)->first();
+        if (! $lote) {
+            return;
+        }
+
+        $totalLote = round((float) $lote->peso_neto, 2);
+
+        $particiones = DB::table('particion_lote_mineral')
+            ->select(['id', 'peso_neto', 'peso_final', 'es_bloqueado'])
+            ->where('id_lote_mineral', $idLote)
+            ->where('estado', EstadoBase::Activo->value)
+            ->get();
+
+        if ($particiones->isEmpty()) {
+            return;
+        }
+
+        $hasBloqueadoCol = ValidacionDistribucionData::has_column_es_bloqueado();
+
+        $activasLocked = [];
+        $activasUnlocked = [];
+        foreach ($particiones as $p) {
+            $bloqueada = $hasBloqueadoCol ? (bool) $p->es_bloqueado : false;
+            if ($bloqueada) {
+                $activasLocked[] = $p;
+            } else {
+                $activasUnlocked[] = $p;
+            }
+        }
+
+        if (empty($activasUnlocked)) {
+            return;
+        }
+
+        $sumLocked = 0.0;
+        foreach ($activasLocked as $p) {
+            $sumLocked += (float) $p->peso_neto;
+        }
+        $sumLocked = round($sumLocked, 2);
+
+        $targetUnlocked = round(max(0, $totalLote - $sumLocked), 2);
+        $count = count($activasUnlocked);
+        $baseShare = $count > 0 ? round($targetUnlocked / $count, 2) : 0.0;
+
+        $asignados = [];
+        $acumulado = 0.0;
+        foreach ($activasUnlocked as $idx => $p) {
+            if ($idx === $count - 1) {
+                $share = round($targetUnlocked - $acumulado, 2);
+            } else {
+                $share = $baseShare;
+                $acumulado = round($acumulado + $share, 2);
+            }
+            $asignados[$p->id] = $share;
+        }
+
+        foreach ($activasUnlocked as $p) {
+            if (! isset($asignados[$p->id])) {
+                continue;
+            }
+            $newNeto = round((float) $asignados[$p->id], 2);
+            $pesoFinal = (float) $p->peso_final;
+            $newInicial = round($pesoFinal + $newNeto, 2);
+
+            DB::table('particion_lote_mineral')
+                ->where('id', $p->id)
+                ->update([
+                    'peso_neto' => $newNeto,
+                    'peso_inicial' => $newInicial,
+                ]);
+        }
     }
 
     /**
@@ -430,4 +538,3 @@ class ValidacionDistribucionService
         return ApiResponse::success($data, 'Ticket de balanza del lote obtenido correctamente.');
     }
 }
-

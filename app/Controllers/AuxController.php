@@ -385,6 +385,14 @@ class AuxController extends Controller
     {
         $idSucursal = $request->query('id_sucursal') ? (int) $request->query('id_sucursal') : null;
         $idProveedor = $request->query('id_proveedor') ? (int) $request->query('id_proveedor') : null;
+        $fechaIngreso = $request->query('fecha_ingreso');
+
+        if ($fechaIngreso !== null && $fechaIngreso !== '' && ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaIngreso)) {
+            return response()->json(ApiResponse::error('fecha_ingreso debe tener formato YYYY-MM-DD.'), 400);
+        }
+        if ($fechaIngreso === '' || $fechaIngreso === null) {
+            $fechaIngreso = null;
+        }
 
         $estadoPesaje = EstadoPesaje::Pesado->value;
         $estadoGuiaActivo = EstadoBase::Activo->value;
@@ -423,6 +431,7 @@ class AuxController extends Controller
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         WHERE lm.peso_inicial IS NOT NULL
           AND lm.peso_final IS NOT NULL
+          AND lm.peso_neto > 0
           AND lm.tiene_particion = 0
           AND ru.estado_pesaje = :estado_pesaje
         ';
@@ -442,6 +451,11 @@ class AuxController extends Controller
             $params['id_proveedor'] = $idProveedor;
         }
 
+        if ($fechaIngreso !== null) {
+            $sqlLotes .= ' AND DATE(ru.fecha_hora_ingreso) = :fecha_ingreso';
+            $params['fecha_ingreso'] = $fechaIngreso;
+        }
+
         $sqlLotes .= ' ORDER BY lm.correlativo ASC;';
 
         foreach (DB::select($sqlLotes, $params) as $row) {
@@ -456,6 +470,8 @@ class AuxController extends Controller
         }
 
         // 2) Particiones de lotes, sin asignar a una guía activa.
+        // Solo se listan particiones cuando la suma de las particiones con peso_neto>0
+        // del lote padre coincide con el peso_neto del lote padre.
         $sqlParticiones = '
         SELECT
             "PARTICION" AS tipo_item,
@@ -487,7 +503,14 @@ class AuxController extends Controller
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
         WHERE lm.peso_inicial IS NOT NULL
           AND lm.peso_final IS NOT NULL
+          AND plm.peso_neto > 0
           AND ru.estado_pesaje = :estado_pesaje
+          AND COALESCE((
+                SELECT SUM(plm2.peso_neto)
+                FROM particion_lote_mineral plm2
+                WHERE plm2.id_lote_mineral = lm.id
+                  AND plm2.peso_neto > 0
+            ), 0) = lm.peso_neto
         ';
 
         $params2 = [
@@ -503,6 +526,11 @@ class AuxController extends Controller
         if ($idProveedor !== null) {
             $sqlParticiones .= ' AND lm.id_proveedor_minero = :id_proveedor';
             $params2['id_proveedor'] = $idProveedor;
+        }
+
+        if ($fechaIngreso !== null) {
+            $sqlParticiones .= ' AND DATE(ru.fecha_hora_ingreso) = :fecha_ingreso';
+            $params2['fecha_ingreso'] = $fechaIngreso;
         }
 
         $sqlParticiones .= ' ORDER BY plm.correlativo ASC;';

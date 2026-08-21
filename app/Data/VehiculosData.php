@@ -20,6 +20,7 @@ class VehiculosData
             tv.nombre AS tipo_vehiculo_nombre,
             tv.es_carreta,
             v.placa,
+            v.capacidad,
             v.estado,
             (
                 SELECT ru2.id_conductor

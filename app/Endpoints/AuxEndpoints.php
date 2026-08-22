@@ -57,6 +57,9 @@ Route::middleware('auth.jwt.custom')->group(function () {
         // sucursales
         Route::get('/sucursales', [AuxController::class, 'get_sucursales']);
 
+        // plantas destino activas (despachos)
+        Route::get('/plantas-despachable', [AuxController::class, 'get_plantas_despachable']);
+
         // zonas de origen
         Route::get('/zonas-origen', [AuxController::class, 'get_zonas_origen']);
         Route::post('/zonas-origen', [AuxController::class, 'crear_zona_origen']);

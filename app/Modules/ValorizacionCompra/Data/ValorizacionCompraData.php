@@ -24,6 +24,7 @@ class ValorizacionCompraData
             'detalles',
             'detalles.loteGuia',
             'detalles.loteGuia.loteMineral:id,numero_correlativo,correlativo,ley_humedad,ley_oro,ley_plata,peso_neto',
+            'detalles.loteGuia.particionLoteMineral.loteMineral:id,numero_correlativo,correlativo,ley_humedad,ley_oro,ley_plata,peso_neto',
             'detalles.loteGuia.guiaPrimerTramo:id,guia_remitente,guia_transportista,sin_guia_transportista,fecha_en_planta',
             'transaccionesAnticipo',
             'transaccionesAnticipo.anticipo:id,serie_factura,numero_factura,saldo_inicial,saldo_actual',
@@ -73,7 +74,7 @@ class ValorizacionCompraData
             'log_cambios' => $item->log_cambios ?? [],
             'detalles' => $item->detalles->map(function ($d) {
                 $lg = $d->loteGuia;
-                $lm = $lg ? $lg->loteMineral : null;
+                $lm = $lg ? ($lg->loteMineral ?? $lg->particionLoteMineral?->loteMineral) : null;
                 $gpt = $lg ? $lg->guiaPrimerTramo : null;
 
                 $tmh = $lg && $lg->peso_neto !== null ? (float) $lg->peso_neto : ($lm ? (float) $lm->peso_neto : 0);
@@ -86,7 +87,7 @@ class ValorizacionCompraData
                     'id_lote_guia' => $d->id_lote_guia,
                     'id_condicion_comercial' => $d->id_condicion_comercial,
                     'elemento_quimico' => $d->elemento_quimico ? $d->elemento_quimico->value : null,
-                    'codigo_gel' => $lm ? $lm->numero_correlativo : null,
+                    'numero_correlativo' => $lm ? $lm->numero_correlativo : null,
                     'lote_correlativo' => $lm ? $lm->correlativo : null,
                     'grr' => $gpt ? $gpt->guia_remitente : null,
                     'grt' => $gpt && ! $gpt->sin_guia_transportista ? $gpt->guia_transportista : null,
@@ -195,7 +196,10 @@ class ValorizacionCompraData
      */
     public static function find_lote_guia_con_mineral(int $idLoteGuia): ?\App\Models\LoteGuia
     {
-        return \App\Models\LoteGuia::with('loteMineral')->find($idLoteGuia);
+        return \App\Models\LoteGuia::with([
+            'loteMineral',
+            'particionLoteMineral.loteMineral',
+        ])->find($idLoteGuia);
     }
 
     /**

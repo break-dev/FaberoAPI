@@ -29,6 +29,11 @@ class LoteGuia extends Model
         return $this->belongsTo(LoteMineral::class, 'id_lote_mineral');
     }
 
+    public function particionLoteMineral(): BelongsTo
+    {
+        return $this->belongsTo(ParticionLoteMineral::class, 'id_particion_lote_mineral');
+    }
+
     public function guiaPrimerTramo(): BelongsTo
     {
         return $this->belongsTo(GuiaPrimerTramo::class, 'id_guia_primer_tramo');

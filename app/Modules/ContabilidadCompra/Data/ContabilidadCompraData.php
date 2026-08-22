@@ -285,13 +285,16 @@ class ContabilidadCompraData
                 vcd.maquila,
                 vcd.consumo,
                 vcd.factor,
-                lm.numero_correlativo AS codigo_gel,
+                lm.numero_correlativo AS numero_correlativo,
                 lm.correlativo AS lote_correlativo
             FROM comprobante_compra cc
             INNER JOIN valorizacion_compra vc ON vc.id = cc.id_valorizacion_compra
             INNER JOIN valorizacion_compramineral_detalle vcd ON vcd.id_valorizacion_compra = vc.id
             INNER JOIN lote_guia lg ON lg.id = vcd.id_lote_guia
-            INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+            INNER JOIN lote_mineral lm ON lm.id = COALESCE(
+                lg.id_lote_mineral,
+                (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
+            )
             WHERE cc.id = :id
             ORDER BY vcd.id ASC
         ';

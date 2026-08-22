@@ -51,6 +51,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 require base_path('app/Modules/ValorizacionCompra/Endpoints/ValorizacionCompraEndpoints.php');
                 require base_path('app/Modules/ContabilidadCompra/ContabilidadCompraEndpoints.php');
                 require base_path('app/Modules/Blending/Endpoints/BlendingEndpoints.php');
+                require base_path('app/Modules/ProgramacionDespachos/ProgramacionDespachosEndpoints.php');
             });
         },
     )

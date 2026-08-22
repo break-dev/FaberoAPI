@@ -31,29 +31,75 @@ class ValorizacionCompraAuxData
                 p.estado
             FROM proveedor p
             INNER JOIN (
-                SELECT lg.id AS id_lote_guia, lm.con_valor_comercial, COALESCE(gpt.id_proveedor, lm.id_proveedor_minero) AS id_proveedor
+                SELECT lg.id AS id_lote_guia, lm.con_valor_comercial, gpt.id_proveedor AS id_proveedor
                 FROM lote_guia lg
-                INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+                INNER JOIN lote_mineral lm ON lm.id = COALESCE(
+                    lg.id_lote_mineral,
+                    (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
+                )
                 LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
+                WHERE lm.con_valor_comercial = 1
+                  -- El lote padre debe estar validado.
+                  AND lm.esta_validado = 1
+                  -- Si el lote tiene particiones activas, TODAS deben estar validadas.
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM particion_lote_mineral plm_check
+                      WHERE plm_check.id_lote_mineral = lm.id
+                        AND plm_check.estado = \'Activo\'
+                        AND plm_check.esta_validado = 0
+                  )
+                  -- La guia asociada (si existe) NO debe estar anulada.
+                  AND (
+                      lg.id_guia_primer_tramo IS NULL
+                      OR COALESCE(gpt.estado, \'Activo\') <> \'Anulado\'
+                  )
+                  -- Si lote_guia es a nivel de particion, esa particion debe estar validada y activa.
+                  AND (
+                      lg.id_particion_lote_mineral IS NULL
+                      OR EXISTS (
+                          SELECT 1
+                          FROM particion_lote_mineral plm
+                          WHERE plm.id = lg.id_particion_lote_mineral
+                            AND plm.estado = \'Activo\'
+                            AND plm.esta_validado = 1
+                      )
+                  )
+                  -- Excluir el lote completo si ya tiene AMBOS elementos (Oro y Plata) valorizados,
+                  -- independientemente de qué lote_guia se uso.
+                  AND NOT (
+                      EXISTS (
+                          SELECT 1
+                          FROM valorizacion_compramineral_detalle vcd
+                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
+                          WHERE (
+                              lg_check.id_lote_mineral = lm.id
+                              OR lg_check.id_particion_lote_mineral IN (
+                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
+                              )
+                          )
+                            AND vc.estado != :estado_anulado_1
+                            AND vcd.elemento_quimico = "Oro"
+                      )
+                      AND
+                      EXISTS (
+                          SELECT 1
+                          FROM valorizacion_compramineral_detalle vcd
+                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
+                          WHERE (
+                              lg_check.id_lote_mineral = lm.id
+                              OR lg_check.id_particion_lote_mineral IN (
+                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
+                              )
+                          )
+                            AND vc.estado != :estado_anulado_2
+                            AND vcd.elemento_quimico = "Plata"
+                      )
+                  )
             ) t ON t.id_proveedor = p.id
             WHERE t.con_valor_comercial = 1
-              AND (
-                  t.id_lote_guia NOT IN (
-                      SELECT vcd.id_lote_guia
-                      FROM valorizacion_compramineral_detalle vcd
-                      INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                      WHERE vc.estado != :estado_anulado_1
-                        AND vcd.elemento_quimico = "Oro"
-                  )
-                  OR
-                  t.id_lote_guia NOT IN (
-                      SELECT vcd.id_lote_guia
-                      FROM valorizacion_compramineral_detalle vcd
-                      INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                      WHERE vc.estado != :estado_anulado_2
-                        AND vcd.elemento_quimico = "Plata"
-                  )
-              )
             ORDER BY p.razon_social ASC;
         ';
 
@@ -167,77 +213,153 @@ class ValorizacionCompraAuxData
     public static function get_lotes_disponibles_valorizacion(int $idProveedor, ?int $idValorizacionEdicion = null): array
     {
         $sql = '
-            SELECT 
-                lg.id AS id_lote_guia,
-                lm.id AS id_lote_mineral,
-                lm.numero_correlativo AS codigo_gel,
-                lm.correlativo AS correlativo_lote,
-                gpt.guia_remitente,
-                gpt.guia_remitente AS grr,
-                gpt.guia_transportista,
-                CASE WHEN gpt.sin_guia_transportista = 1 OR gpt.guia_transportista IS NULL OR gpt.guia_transportista = \'\' THEN NULL ELSE gpt.guia_transportista END AS grt,
-                gpt.fecha_en_planta,
-                lm.peso_neto AS tmh,
-                COALESCE(lm.ley_humedad, 0) AS ley_humedad,
-                (lm.peso_neto * (1 - (COALESCE(lm.ley_humedad, 0) / 100))) AS tms,
-                COALESCE(lm.ley_oro, 0) AS ley_oro,
-                COALESCE(lm.ley_plata, 0) AS ley_plata,
-                EXISTS (
-                    SELECT 1 
-                    FROM valorizacion_compramineral_detalle vcd
-                    INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                    WHERE vcd.id_lote_guia = lg.id
-                      AND vc.estado != :estado_anulado_1
-                      AND vcd.elemento_quimico = "Oro"
-                      AND (:id_val_edicion_1 IS NULL OR vc.id != :id_val_edicion_2)
-                ) AS es_valorizado_oro,
-                EXISTS (
-                    SELECT 1 
-                    FROM valorizacion_compramineral_detalle vcd
-                    INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                    WHERE vcd.id_lote_guia = lg.id
-                      AND vc.estado != :estado_anulado_3
-                      AND vcd.elemento_quimico = "Plata"
-                      AND (:id_val_edicion_3 IS NULL OR vc.id != :id_val_edicion_4)
-                ) AS es_valorizado_plata
-            FROM lote_guia lg
-            INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
-            LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
-            WHERE COALESCE(gpt.id_proveedor, lm.id_proveedor_minero) = :id_proveedor
-              AND lm.con_valor_comercial = 1
-              AND lm.peso_neto > 0
-              AND (
-                  lm.tiene_particion = 0
-                  OR COALESCE(
-                      (
-                          SELECT SUM(plm.peso_neto)
+            SELECT
+                id_lote_guia,
+                id_lote_mineral,
+                numero_correlativo,
+                correlativo_lote,
+                grr,
+                grt,
+                fecha_en_planta,
+                tmh,
+                ley_humedad,
+                tms,
+                ley_oro,
+                ley_plata,
+                es_valorizado_oro,
+                es_valorizado_plata
+            FROM (
+                SELECT
+                    lg.id AS id_lote_guia,
+                    lm.id AS id_lote_mineral,
+                    lm.numero_correlativo AS numero_correlativo,
+                    lm.correlativo AS correlativo_lote,
+                    gpt.guia_remitente AS grr,
+                    CASE WHEN gpt.sin_guia_transportista = 1 OR gpt.guia_transportista IS NULL OR gpt.guia_transportista = \'\' THEN NULL ELSE gpt.guia_transportista END AS grt,
+                    gpt.fecha_en_planta,
+                    lm.peso_neto AS tmh,
+                    COALESCE(lm.ley_humedad, 0) AS ley_humedad,
+                    (lm.peso_neto * (1 - (COALESCE(lm.ley_humedad, 0) / 100))) AS tms,
+                    COALESCE(lm.ley_oro, 0) AS ley_oro,
+                    COALESCE(lm.ley_plata, 0) AS ley_plata,
+                    EXISTS (
+                        SELECT 1
+                        FROM valorizacion_compramineral_detalle vcd
+                        INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+                        INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
+                        WHERE (
+                            lg_check.id_lote_mineral = lm.id
+                            OR lg_check.id_particion_lote_mineral IN (
+                                SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
+                            )
+                        )
+                          AND vc.estado != :estado_anulado_1
+                          AND vcd.elemento_quimico = "Oro"
+                          AND (:id_val_edicion_1 IS NULL OR vc.id != :id_val_edicion_2)
+                    ) AS es_valorizado_oro,
+                    EXISTS (
+                        SELECT 1
+                        FROM valorizacion_compramineral_detalle vcd
+                        INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+                        INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
+                        WHERE (
+                            lg_check.id_lote_mineral = lm.id
+                            OR lg_check.id_particion_lote_mineral IN (
+                                SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
+                            )
+                        )
+                          AND vc.estado != :estado_anulado_3
+                          AND vcd.elemento_quimico = "Plata"
+                          AND (:id_val_edicion_3 IS NULL OR vc.id != :id_val_edicion_4)
+                    ) AS es_valorizado_plata,
+                    ROW_NUMBER() OVER (PARTITION BY lm.id ORDER BY lg.id ASC) AS rn
+                FROM lote_guia lg
+                INNER JOIN lote_mineral lm ON lm.id = COALESCE(
+                    lg.id_lote_mineral,
+                    (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
+                )
+                LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
+                WHERE COALESCE(gpt.id_proveedor, lm.id_proveedor_minero) = :id_proveedor
+                  AND lm.con_valor_comercial = 1
+                  AND lm.peso_neto > 0
+                  -- El lote padre debe estar validado.
+                  AND lm.esta_validado = 1
+                  -- Si el lote tiene particiones activas, TODAS deben estar validadas.
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM particion_lote_mineral plm_check
+                      WHERE plm_check.id_lote_mineral = lm.id
+                        AND plm_check.estado = \'Activo\'
+                        AND plm_check.esta_validado = 0
+                  )
+                  -- La guia asociada (si existe) NO debe estar anulada.
+                  AND (
+                      lg.id_guia_primer_tramo IS NULL
+                      OR COALESCE(gpt.estado, \'Activo\') <> \'Anulado\'
+                  )
+                  -- La fila de lote_guia debe cumplir su propia condicion segun el nivel:
+                  -- a nivel de lote: ninguna extra. a nivel de particion: la particion
+                  -- debe existir, estar activa y validada.
+                  AND (
+                      lg.id_particion_lote_mineral IS NULL
+                      OR EXISTS (
+                          SELECT 1
                           FROM particion_lote_mineral plm
-                          WHERE plm.id_lote_mineral = lm.id
-                            AND plm.peso_neto > 0
-                      ),
-                      0
-                  ) = lm.peso_neto
-              )
-              AND (
-                  lg.id NOT IN (
-                      SELECT vcd.id_lote_guia
-                      FROM valorizacion_compramineral_detalle vcd
-                      INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                      WHERE vc.estado != :estado_anulado_5
-                        AND vcd.elemento_quimico = "Oro"
-                        AND (:id_val_edicion_5 IS NULL OR vc.id != :id_val_edicion_6)
+                          WHERE plm.id = lg.id_particion_lote_mineral
+                            AND plm.estado = \'Activo\'
+                            AND plm.esta_validado = 1
+                      )
                   )
-                  OR
-                  lg.id NOT IN (
-                      SELECT vcd.id_lote_guia
-                      FROM valorizacion_compramineral_detalle vcd
-                      INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                      WHERE vc.estado != :estado_anulado_7
-                        AND vcd.elemento_quimico = "Plata"
-                        AND (:id_val_edicion_7 IS NULL OR vc.id != :id_val_edicion_8)
+                  AND (
+                      lm.tiene_particion = 0
+                      OR COALESCE(
+                          (
+                              SELECT SUM(plm.peso_neto)
+                              FROM particion_lote_mineral plm
+                              WHERE plm.id_lote_mineral = lm.id
+                                AND plm.peso_neto > 0
+                          ),
+                          0
+                      ) = lm.peso_neto
                   )
-              )
-            ORDER BY gpt.fecha_en_planta ASC, lm.numero_correlativo ASC;
+                  -- Excluir el lote completo si ya tiene AMBOS elementos (Oro y Plata)
+                  -- valorizados, independientemente de qué lote_guia se uso.
+                  AND NOT (
+                      EXISTS (
+                          SELECT 1
+                          FROM valorizacion_compramineral_detalle vcd
+                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
+                          WHERE (
+                              lg_check.id_lote_mineral = lm.id
+                              OR lg_check.id_particion_lote_mineral IN (
+                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
+                              )
+                          )
+                            AND vc.estado != :estado_anulado_5
+                            AND vcd.elemento_quimico = "Oro"
+                            AND (:id_val_edicion_5 IS NULL OR vc.id != :id_val_edicion_6)
+                      )
+                      AND
+                      EXISTS (
+                          SELECT 1
+                          FROM valorizacion_compramineral_detalle vcd
+                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
+                          WHERE (
+                              lg_check.id_lote_mineral = lm.id
+                              OR lg_check.id_particion_lote_mineral IN (
+                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
+                              )
+                          )
+                            AND vc.estado != :estado_anulado_7
+                            AND vcd.elemento_quimico = "Plata"
+                            AND (:id_val_edicion_7 IS NULL OR vc.id != :id_val_edicion_8)
+                      )
+                  )
+            ) ranked
+            WHERE ranked.rn = 1
+            ORDER BY ranked.fecha_en_planta ASC, ranked.numero_correlativo ASC;
         ';
 
         $anuladoVal = EstadoValorizacionCompra::Anulado->value;

@@ -533,13 +533,14 @@ class ValidacionDistribucionData
         }
         unset($eval);
 
-        // Si un lote no tiene particiones activas (no se incluyo en el WHERE),
-        // marcamos cumple_suma=true si lote.peso_neto=0 (caso degenerado) y lote_cumple=false.
-        // El caller decidira si permite o no validar lotes sin particiones.
+        // Si un lote no tiene particiones activas (no se incluyo en el WHERE):
+        // no hay requisitos que validar, por lo que el lote es trivialmente valido.
+        // Esto permite que un lote sin particiones (caso degenerado, p.ej. recepcion
+        // unica sin necesidad de fraccionamiento) pueda marcarse como validado.
         foreach ($evaluacion as $idLote => &$eval) {
             if (empty($eval['particiones'])) {
-                $eval['cumple_suma'] = round((float) $eval['peso_neto_lote'], 2) === 0.0;
-                $eval['lote_cumple'] = false;
+                $eval['cumple_suma'] = true;
+                $eval['lote_cumple'] = true;
             }
         }
         unset($eval);

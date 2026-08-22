@@ -2,6 +2,7 @@
 
 namespace App\Controllers;
 
+use App\Modules\PlantasDestino\Services\PlantasDestinoService;
 use App\Services\ConductoresService;
 use App\Services\EmpleadosService;
 use App\Services\EmpresasService;
@@ -134,6 +135,14 @@ class AuxController extends Controller
         $result = ConductoresService::get_conductores();
 
         return response()->json($result);
+    }
+
+    /**
+     * Plantas destino activas (simplificado: id, ruc, razon_social) para dropdowns.
+     */
+    public function get_plantas_despachable(): JsonResponse
+    {
+        return response()->json(PlantasDestinoService::get_plantas_despachable());
     }
 
     /**
@@ -433,6 +442,7 @@ class AuxController extends Controller
           AND lm.peso_final IS NOT NULL
           AND lm.peso_neto > 0
           AND lm.tiene_particion = 0
+          AND lm.esta_validado = 1
           AND ru.estado_pesaje = :estado_pesaje
         ';
 
@@ -505,6 +515,8 @@ class AuxController extends Controller
           AND lm.peso_final IS NOT NULL
           AND plm.peso_neto > 0
           AND ru.estado_pesaje = :estado_pesaje
+          AND plm.esta_validado = 1
+          AND lm.esta_validado = 1
           AND COALESCE((
                 SELECT SUM(plm2.peso_neto)
                 FROM particion_lote_mineral plm2

@@ -93,11 +93,11 @@ class ValorizacionCompraService
             // Guardar Detalles de lotes
             foreach ($data['detalles'] as $det) {
                 $loteGuia = ValorizacionCompraData::find_lote_guia_con_mineral((int) $det['id_lote_guia']);
-                if (! $loteGuia || ! $loteGuia->loteMineral) {
+                $lote = $loteGuia?->loteMineral
+                    ?? $loteGuia?->particionLoteMineral?->loteMineral;
+                if (! $loteGuia || ! $lote) {
                     throw new Exception("El lote guía ID {$det['id_lote_guia']} no fue encontrado.");
                 }
-
-                $lote = $loteGuia->loteMineral;
                 $pesoNeto = $loteGuia->peso_neto !== null ? (float) $loteGuia->peso_neto : (float) $lote->peso_neto;
                 $leyHumedad = (float) $lote->ley_humedad;
                 $pesoSeco = $pesoNeto * (1 - ($leyHumedad / 100));
@@ -346,11 +346,11 @@ class ValorizacionCompraService
 
             foreach ($data['detalles'] as $det) {
                 $loteGuia = ValorizacionCompraData::find_lote_guia_con_mineral((int) $det['id_lote_guia']);
-                if (! $loteGuia || ! $loteGuia->loteMineral) {
+                $lote = $loteGuia?->loteMineral
+                    ?? $loteGuia?->particionLoteMineral?->loteMineral;
+                if (! $loteGuia || ! $lote) {
                     throw new Exception("El lote guía ID {$det['id_lote_guia']} no fue encontrado.");
                 }
-
-                $lote = $loteGuia->loteMineral;
                 $pesoNeto = $loteGuia->peso_neto !== null ? (float) $loteGuia->peso_neto : (float) $lote->peso_neto;
                 $leyHumedad = (float) $lote->ley_humedad;
                 $pesoSeco = $pesoNeto * (1 - ($leyHumedad / 100));

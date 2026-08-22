@@ -68,14 +68,15 @@ class RecepcionUnidadesData
 
         $params = [];
 
-        // Filtro por fecha (Rango: usa fecha_hora_ingreso o fecha_estimada_llegada para programaciones)
+        // Filtro por fecha (las recepciones programadas — es_programacion=1 — siempre se listan,
+        // sin importar el rango de fechas; las reales sí se filtran por fecha_hora_ingreso o created_at).
         if (! empty($filters['fecha_inicio'])) {
-            $sql .= ' AND COALESCE(ru.fecha_hora_ingreso, ru.fecha_estimada_llegada, ru.created_at) >= :fecha_inicio';
+            $sql .= ' AND (ru.es_programacion = 1 OR COALESCE(ru.fecha_hora_ingreso, ru.created_at) >= :fecha_inicio)';
             $params['fecha_inicio'] = $filters['fecha_inicio'].' 00:00:00';
         }
 
         if (! empty($filters['fecha_fin'])) {
-            $sql .= ' AND COALESCE(ru.fecha_hora_ingreso, ru.fecha_estimada_llegada, ru.created_at) <= :fecha_fin';
+            $sql .= ' AND (ru.es_programacion = 1 OR COALESCE(ru.fecha_hora_ingreso, ru.created_at) <= :fecha_fin)';
             $params['fecha_fin'] = $filters['fecha_fin'].' 23:59:59';
         }
 

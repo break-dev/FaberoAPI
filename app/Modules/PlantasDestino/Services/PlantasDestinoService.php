@@ -4,6 +4,7 @@ namespace App\Modules\PlantasDestino\Services;
 
 use App\Modules\PlantasDestino\Data\PlantasDestinoData;
 use App\Shared\Responses\ApiResponse;
+use Illuminate\Support\Facades\DB;
 
 class PlantasDestinoService
 {
@@ -12,6 +13,22 @@ class PlantasDestinoService
         $data = PlantasDestinoData::get_plantas();
 
         return ApiResponse::success($data, 'Plantas de destino obtenidas correctamente');
+    }
+
+    /**
+     * Listar plantas activas en formato simplificado (id, ruc, razon_social) para dropdowns.
+     */
+    public static function get_plantas_despachable(): array
+    {
+        $sql = '
+        SELECT id, ruc, razon_social
+        FROM planta_destino
+        WHERE estado = :estado
+        ORDER BY razon_social ASC
+        ';
+        $rows = DB::select($sql, ['estado' => 'Activo']);
+
+        return ApiResponse::success($rows, 'Plantas activas obtenidas correctamente');
     }
 
     public static function get_planta(int $id): array

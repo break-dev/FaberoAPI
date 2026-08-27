@@ -32,6 +32,7 @@ class ParticionLoteMineral extends Model
         'peso_neto' => 'float',
         'estado' => EstadoBase::class,
         'es_bloqueado' => 'boolean',
+        'esta_validado' => 'boolean',
     ];
 
     public function loteMineral()

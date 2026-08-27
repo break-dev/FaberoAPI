@@ -394,13 +394,14 @@ class AuxController extends Controller
     {
         $idSucursal = $request->query('id_sucursal') ? (int) $request->query('id_sucursal') : null;
         $idProveedor = $request->query('id_proveedor') ? (int) $request->query('id_proveedor') : null;
-        $fechaIngreso = $request->query('fecha_ingreso');
+        $fechaInicio = $request->query('fecha_inicio');
+        $fechaFin = $request->query('fecha_fin');
 
-        if ($fechaIngreso !== null && $fechaIngreso !== '' && ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaIngreso)) {
-            return response()->json(ApiResponse::error('fecha_ingreso debe tener formato YYYY-MM-DD.'), 400);
+        if (empty($fechaInicio) || empty($fechaFin)) {
+            return response()->json(ApiResponse::error('Los parámetros fecha_inicio y fecha_fin son obligatorios (YYYY-MM-DD).'), 400);
         }
-        if ($fechaIngreso === '' || $fechaIngreso === null) {
-            $fechaIngreso = null;
+        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaInicio) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $fechaFin)) {
+            return response()->json(ApiResponse::error('fecha_inicio y fecha_fin deben tener formato YYYY-MM-DD.'), 400);
         }
 
         $estadoPesaje = EstadoPesaje::Pesado->value;
@@ -461,9 +462,10 @@ class AuxController extends Controller
             $params['id_proveedor'] = $idProveedor;
         }
 
-        if ($fechaIngreso !== null) {
-            $sqlLotes .= ' AND DATE(ru.fecha_hora_ingreso) = :fecha_ingreso';
-            $params['fecha_ingreso'] = $fechaIngreso;
+        if ($fechaInicio !== null && $fechaFin !== null) {
+            $sqlLotes .= ' AND DATE(ru.fecha_hora_ingreso) BETWEEN :fecha_inicio AND :fecha_fin';
+            $params['fecha_inicio'] = $fechaInicio;
+            $params['fecha_fin'] = $fechaFin;
         }
 
         $sqlLotes .= ' ORDER BY lm.correlativo ASC;';
@@ -540,9 +542,10 @@ class AuxController extends Controller
             $params2['id_proveedor'] = $idProveedor;
         }
 
-        if ($fechaIngreso !== null) {
-            $sqlParticiones .= ' AND DATE(ru.fecha_hora_ingreso) = :fecha_ingreso';
-            $params2['fecha_ingreso'] = $fechaIngreso;
+        if ($fechaInicio !== null && $fechaFin !== null) {
+            $sqlParticiones .= ' AND DATE(ru.fecha_hora_ingreso) BETWEEN :fecha_inicio AND :fecha_fin';
+            $params2['fecha_inicio'] = $fechaInicio;
+            $params2['fecha_fin'] = $fechaFin;
         }
 
         $sqlParticiones .= ' ORDER BY plm.correlativo ASC;';

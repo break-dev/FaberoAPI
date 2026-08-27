@@ -11,9 +11,12 @@ class ProgramarRecepcionService
     /**
      * Listar programaciones.
      */
-    public static function get_programaciones(bool $soloPendientes = false): array
+    public static function get_programaciones(array $filtros): array
     {
-        $data = ProgramarRecepcionData::get_programaciones($soloPendientes);
+        $data = ProgramarRecepcionData::get_programaciones(
+            $filtros['solo_pendientes'] ?? true,
+            $filtros,
+        );
 
         return ApiResponse::success($data, 'Programaciones obtenidas correctamente');
     }

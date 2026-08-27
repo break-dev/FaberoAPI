@@ -13,7 +13,7 @@ class ProgramarRecepcionData
      * Obtener programaciones (recepciones con es_programacion = 1).
      * Opcionalmente filtrar por estado de confirmación: las no confirmadas (id_empleado_recepcion IS NULL).
      */
-    public static function get_programaciones(bool $soloPendientes = false): array
+    public static function get_programaciones(bool $soloPendientes = false, array $filtros = []): array
     {
         $sql = '
         SELECT
@@ -51,13 +51,23 @@ class ProgramarRecepcionData
         WHERE ru.es_programacion = 1
         ';
 
+        $params = [];
+
         if ($soloPendientes) {
             $sql .= ' AND ru.id_empleado_recepcion IS NULL';
         }
+        if (! empty($filtros['fecha_inicio'])) {
+            $sql .= ' AND DATE(ru.created_at) >= :fecha_inicio';
+            $params['fecha_inicio'] = $filtros['fecha_inicio'];
+        }
+        if (! empty($filtros['fecha_fin'])) {
+            $sql .= ' AND DATE(ru.created_at) <= :fecha_fin';
+            $params['fecha_fin'] = $filtros['fecha_fin'];
+        }
 
-        $sql .= ' ORDER BY ru.created_at DESC;';
+        $sql .= ' ORDER BY ru.created_at DESC';
 
-        return DB::select($sql);
+        return DB::select($sql, $params);
     }
 
     /**

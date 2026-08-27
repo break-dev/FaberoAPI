@@ -40,6 +40,8 @@ class ValidacionDistribucionData
             INNER JOIN vehiculo v ON v.id = ru.id_vehiculo
             LEFT JOIN ticket_balanza tb ON tb.id = lm.id_ticket_balanza
             WHERE (lm.estado IS NULL OR lm.estado != "Eliminado")
+              AND ru.estado_pesaje = "Pesado"
+              AND lm.peso_neto > 0
         ';
 
         $params = [];

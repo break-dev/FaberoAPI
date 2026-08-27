@@ -60,6 +60,8 @@ class RecepcionMineralData
             $sql .= ' AND ru.estado_pesaje IN ("Sin Pesar", "En Proceso")';
         }
 
+        $sql .= ' AND ru.es_recepcion_ficticia = 0';
+
         $sql .= ' ORDER BY ru.fecha_hora_ingreso DESC;';
 
         $results = DB::select($sql, $params);

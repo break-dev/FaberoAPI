@@ -16,9 +16,13 @@ class ProgramarRecepcionController extends Controller
      */
     public function get_programaciones(Request $request): JsonResponse
     {
-        $soloPendientes = filter_var($request->query('solo_pendientes', 'true'), FILTER_VALIDATE_BOOLEAN);
+        $filtros = [
+            'solo_pendientes' => filter_var($request->query('solo_pendientes', 'true'), FILTER_VALIDATE_BOOLEAN),
+            'fecha_inicio'     => $request->query('fecha_inicio'),
+            'fecha_fin'        => $request->query('fecha_fin'),
+        ];
 
-        return response()->json(ProgramarRecepcionService::get_programaciones($soloPendientes));
+        return response()->json(ProgramarRecepcionService::get_programaciones($filtros));
     }
 
     /**

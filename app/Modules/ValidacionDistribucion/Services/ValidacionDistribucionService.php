@@ -92,118 +92,107 @@ class ValidacionDistribucionService
      */
     public static function crear_particion(int $idLote, array $data): array
     {
-        $lote = DB::table('lote_mineral')->where('id', $idLote)->first();
-        if (! $lote) {
-            return ApiResponse::error('No se encontró el lote.', 404);
-        }
-
-        $countExistentes = ValidacionDistribucionData::count_particiones($idLote);
-        $esPrimera = $countExistentes === 0;
-        $letra = ValidacionDistribucionData::get_siguiente_letra_particion($idLote);
-
-        $correlativoPart = $lote->correlativo.'-'.$letra;
-        $pesoInicial = (float) ($data['peso_inicial'] ?? 0);
-        $pesoFinal = (float) ($data['peso_final'] ?? 0);
-        $pesoNeto = isset($data['peso_neto']) && $data['peso_neto'] !== null
-            ? (float) $data['peso_neto']
-            : round($pesoInicial - $pesoFinal, 2);
-
-        $fechaPesoInicial = ! empty($data['fecha_hora_peso_inicial'])
-            ? date('Y-m-d H:i:s', strtotime($data['fecha_hora_peso_inicial']))
-            : null;
-        $fechaPesoFinal = ! empty($data['fecha_hora_peso_final'])
-            ? date('Y-m-d H:i:s', strtotime($data['fecha_hora_peso_final']))
-            : null;
-
         try {
             DB::beginTransaction();
 
-            if ($esPrimera) {
-                $idRecepcion = $lote->id_recepcion_unidad !== null ? (int) $lote->id_recepcion_unidad : null;
-                $idTicket = $lote->id_ticket_balanza !== null ? (int) $lote->id_ticket_balanza : null;
-            } else {
-                $recepcionInput = $data['recepcion'] ?? [];
-                $parentRecepcion = DB::table('recepcion_unidad')->where('id', $lote->id_recepcion_unidad)->first();
-
-                $idEmpleadoRegistro = (int) ($data['id_empleado_registro'] ?? auth()->id() ?? 0);
-                if ($idEmpleadoRegistro === 0 && $parentRecepcion) {
-                    $idEmpleadoRegistro = (int) ($parentRecepcion->id_empleado_recepcion ?? 1);
-                }
-                if ($idEmpleadoRegistro === 0) {
-                    $idEmpleadoRegistro = 1;
-                }
-
-                $fechaIngreso = ! empty($recepcionInput['fecha_hora_ingreso'])
-                    ? date('Y-m-d H:i:s', strtotime($recepcionInput['fecha_hora_ingreso']))
-                    : now()->toDateTimeString();
-
-                $idVehiculo = ! empty($recepcionInput['id_vehiculo']) ? (int) $recepcionInput['id_vehiculo'] : null;
-                $idConductor = ! empty($recepcionInput['id_conductor']) ? (int) $recepcionInput['id_conductor'] : null;
-                $idSucursal = ! empty($recepcionInput['id_sucursal'])
-                    ? (int) $recepcionInput['id_sucursal']
-                    : ($parentRecepcion ? (int) $parentRecepcion->id_sucursal : null);
-
-                $nuevaRecepcion = RecepcionUnidad::create([
-                    'id_empleado_recepcion' => $idEmpleadoRegistro,
-                    'id_vehiculo' => $idVehiculo,
-                    'id_empresa_transporte' => null,
-                    'id_tipo_vehiculo' => null,
-                    'id_conductor' => $idConductor,
-                    'tipo_ingreso' => 'Recepción de Mineral',
-                    'segunda_placa' => $recepcionInput['segunda_placa'] ?? null,
-                    'fecha_hora_ingreso' => $fechaIngreso,
-                    'fecha_hora_salida' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +2 hours')),
-                    'fecha_hora_inicio_pesaje' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +30 minutes')),
-                    'fecha_hora_final_pesaje' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +40 minutes')),
-                    'evidencias' => null,
-                    'observacion' => null,
-                    'observacion_salida' => null,
-                    'estado' => 'Fuera de Planta',
-                    'estado_salida' => 'Vacío',
-                    'estado_pesaje' => 'Pesado',
-                    'id_sucursal' => $idSucursal,
-                    'id_proveedor_minero' => null,
-                    'id_empleado_autoriza' => null,
-                    'es_programacion' => 0,
-                    'fecha_estimada_llegada' => null,
-                    'guia_remitente' => null,
-                    'guia_transportista' => null,
-                    'es_recepcion_ficticia' => true,
-                ]);
-
-                $idRecepcion = $nuevaRecepcion->id;
-
-                $ticketData = CorrelativoHelper::generar(
-                    tabla: 'ticket_balanza',
-                    prefijo: '',
-                    filtros: [],
-                    longitudCeros: 0,
-                    reseteo: Periodo::Diario,
-                    formatoFecha: 'dmy',
-                    incluirPrefijo: false,
-                );
-                $idTicket = DB::table('ticket_balanza')->insertGetId([
-                    'correlativo' => $ticketData['correlativo'],
-                    'numero_correlativo' => $ticketData['numero_correlativo'],
-                    'created_at' => now(),
-                ]);
+            // Lock pessimista sobre el lote para evitar que dos requests
+            // concurrentes para el mismo lote "sin particiones" ambos detecten
+            // esPrimera=true y generen duplicados.
+            $lote = DB::table('lote_mineral')->where('id', $idLote)->lockForUpdate()->first();
+            if (! $lote) {
+                DB::rollBack();
+                return ApiResponse::error('No se encontró el lote.', 404);
             }
 
+            $countExistentes = ValidacionDistribucionData::count_particiones($idLote);
+            $esPrimera = $countExistentes === 0;
+
+            // Definicion de cuanto se creara: 2 particiones si es la primera,
+            // 1 si no. Cada una con su propia (idRecepcion, idTicket, letra).
+            $creaciones = []; // cada item: ['letra' => string, 'idRecepcion' => int|null, 'idTicket' => int|null]
             $estadoPart = EstadoBase::Activo;
 
-            $idPart = DB::table('particion_lote_mineral')->insertGetId([
-                'id_lote_mineral' => $idLote,
-                'id_ticket_balanza' => $idTicket,
-                'id_recepcion_unidad' => $idRecepcion,
-                'correlativo' => $correlativoPart,
-                'particion' => $letra,
-                'peso_inicial' => $pesoInicial,
-                'fecha_hora_peso_inicial' => $fechaPesoInicial,
-                'peso_final' => $pesoFinal,
-                'fecha_hora_peso_final' => $fechaPesoFinal,
-                'peso_neto' => $pesoNeto,
-                'estado' => $estadoPart->value,
-            ]);
+            if ($esPrimera) {
+                // Particion A: copia de la recepcion original con es_ficticia=true
+                // y reusa el ticket del lote padre (mismo id_ticket_balanza).
+                // Esto permite que editar la recepcion de la particion NO toque
+                // la original, y mantiene el mismo ticket/correlativo visible
+                // en la UI para que el operador vincule las dos filas.
+                $parentRecepcion = $lote->id_recepcion_unidad !== null
+                    ? DB::table('recepcion_unidad')->where('id', $lote->id_recepcion_unidad)->first()
+                    : null;
+
+                if ($parentRecepcion) {
+                    $copia = $parentRecepcion;
+                    unset($copia->id);
+                    $copia->es_recepcion_ficticia = 1;
+                    $copia->estado = 'Fuera de Planta';
+                    $copia->estado_salida = 'Vacío';
+                    $copia->estado_pesaje = 'Pesado';
+                    $copiaArr = (array) $copia;
+                    $idRecepA = DB::table('recepcion_unidad')->insertGetId($copiaArr);
+                } else {
+                    // Sin recepcion padre: caer al patron de la rama else.
+                    $idRecepA = self::crearRecepcionFicticia($lote, $data)->id;
+                }
+
+                $idTicketA = $lote->id_ticket_balanza ?? self::crearTicketBalanza();
+                $creaciones[] = [
+                    'letra' => self::letraPara($countExistentes + 0),
+                    'idRecepcion' => $idRecepA,
+                    'idTicket' => $idTicketA,
+                ];
+
+                // Particion B: recepcion ficticia nueva + ticket nuevo (patron B+).
+                $idRecepB = self::crearRecepcionFicticia($lote, $data)->id;
+                $ticketB = self::crearTicketBalanza();
+                $creaciones[] = [
+                    'letra' => self::letraPara($countExistentes + 1),
+                    'idRecepcion' => $idRecepB,
+                    'idTicket' => $ticketB,
+                ];
+            } else {
+                // Rama B+ original: 1 sola particion con recepcion ficticia nueva.
+                $recepcionInput = $data['recepcion'] ?? [];
+                $idRecep = self::crearRecepcionFicticia($lote, $data, $recepcionInput)->id;
+                $ticket = self::crearTicketBalanza();
+                $creaciones[] = [
+                    'letra' => self::letraPara($countExistentes),
+                    'idRecepcion' => $idRecep,
+                    'idTicket' => $ticket,
+                ];
+            }
+
+            $pesoInicial = (float) ($data['peso_inicial'] ?? 0);
+            $pesoFinal = (float) ($data['peso_final'] ?? 0);
+            $pesoNeto = isset($data['peso_neto']) && $data['peso_neto'] !== null
+                ? (float) $data['peso_neto']
+                : round($pesoInicial - $pesoFinal, 2);
+
+            $fechaPesoInicial = ! empty($data['fecha_hora_peso_inicial'])
+                ? date('Y-m-d H:i:s', strtotime($data['fecha_hora_peso_inicial']))
+                : null;
+            $fechaPesoFinal = ! empty($data['fecha_hora_peso_final'])
+                ? date('Y-m-d H:i:s', strtotime($data['fecha_hora_peso_final']))
+                : null;
+
+            $idsCreadas = [];
+            foreach ($creaciones as $c) {
+                $idPart = DB::table('particion_lote_mineral')->insertGetId([
+                    'id_lote_mineral' => $idLote,
+                    'id_ticket_balanza' => $c['idTicket'],
+                    'id_recepcion_unidad' => $c['idRecepcion'],
+                    'correlativo' => $lote->correlativo.'-'.$c['letra'],
+                    'particion' => $c['letra'],
+                    'peso_inicial' => $pesoInicial,
+                    'fecha_hora_peso_inicial' => $fechaPesoInicial,
+                    'peso_final' => $pesoFinal,
+                    'fecha_hora_peso_final' => $fechaPesoFinal,
+                    'peso_neto' => $pesoNeto,
+                    'estado' => $estadoPart->value,
+                ]);
+                $idsCreadas[] = $idPart;
+            }
 
             if ((int) $lote->tiene_particion === 0) {
                 DB::table('lote_mineral')->where('id', $idLote)->update([
@@ -220,9 +209,139 @@ class ValidacionDistribucionService
 
         self::recalcularPesosNoBloqueadas($idLote);
 
-        $particion = ParticionLoteMineral::find($idPart);
+        $particiones = ParticionLoteMineral::whereIn('id', $idsCreadas)
+            ->orderBy('id')
+            ->get()
+            ->all();
 
-        return ApiResponse::success($particion, 'Partición creada correctamente con valores en cero. El backend redistribuyó los pesos entre las particiones no bloqueadas.');
+        $cantidad = count($particiones);
+        $msg = $cantidad > 1
+            ? "{$cantidad} particiones creadas correctamente. El backend redistribuyó los pesos entre las particiones no bloqueadas."
+            : 'Partición creada correctamente con valores en cero. El backend redistribuyó los pesos entre las particiones no bloqueadas.';
+
+        return ApiResponse::success($particiones, $msg);
+    }
+
+    /**
+     * Genera la letra para una partición (A, B, C, ..., Z, AA, AB, ...).
+     */
+    private static function letraPara(int $n): string
+    {
+        $letra = '';
+        $m = $n + 1;
+        while ($m > 0) {
+            $m--;
+            $letra = chr(65 + ($m % 26)).$letra;
+            $m = intdiv($m, 26);
+        }
+        return $letra;
+    }
+
+    /**
+     * Crea una RecepcionUnidad ficticia nueva y devuelve el modelo creado.
+     * Si se pasa $recepcionInput explicito, usa esos campos; si no, deriva del lote.
+     *
+     * REGLA DE NEGOCIO (corrección bug id_sucursal NULL en particiones B+):
+     * Una particion pertenece al mismo lote que su padre, por lo tanto la recepcion
+     * ficticia debe heredar SIEMPRE la id_sucursal del padre. El input explicito solo
+     * puede SOBREESCRIBIR ese valor, nunca dejarlo en NULL por omision.
+     */
+    private static function crearRecepcionFicticia(
+        object $lote,
+        array $data,
+        ?array $recepcionInput = null
+    ): RecepcionUnidad {
+        // Resolucion unica de id_sucursal: input explicito gana; si no, hereda del padre.
+        $idSucursalPadre = null;
+        if ($lote->id_recepcion_unidad !== null) {
+            $padreIdSucursal = DB::table('recepcion_unidad')
+                ->where('id', $lote->id_recepcion_unidad)
+                ->value('id_sucursal');
+            $idSucursalPadre = $padreIdSucursal !== null ? (int) $padreIdSucursal : null;
+        }
+
+        if ($recepcionInput === null) {
+            $idEmpleadoRegistro = (int) ($data['id_empleado_registro'] ?? auth()->id() ?? 0);
+            if ($idEmpleadoRegistro === 0 && $idSucursalPadre !== null) {
+                // Fallback consistente: si no hay empleado, tomamos el del padre via el mismo id_recepcion.
+                $padreEmpleado = DB::table('recepcion_unidad')
+                    ->where('id', $lote->id_recepcion_unidad)
+                    ->value('id_empleado_recepcion');
+                $idEmpleadoRegistro = (int) ($padreEmpleado ?? 1);
+            }
+            if ($idEmpleadoRegistro === 0) {
+                $idEmpleadoRegistro = 1;
+            }
+            $fechaIngreso = now()->toDateTimeString();
+            $idVehiculo = null;
+            $idConductor = null;
+            $idSucursal = $idSucursalPadre;
+            $segundaPlaca = null;
+        } else {
+            $idEmpleadoRegistro = (int) ($data['id_empleado_registro'] ?? auth()->id() ?? 0);
+            if ($idEmpleadoRegistro === 0) {
+                $idEmpleadoRegistro = 1;
+            }
+            $fechaIngreso = ! empty($recepcionInput['fecha_hora_ingreso'])
+                ? date('Y-m-d H:i:s', strtotime($recepcionInput['fecha_hora_ingreso']))
+                : now()->toDateTimeString();
+            $idVehiculo = ! empty($recepcionInput['id_vehiculo']) ? (int) $recepcionInput['id_vehiculo'] : null;
+            $idConductor = ! empty($recepcionInput['id_conductor']) ? (int) $recepcionInput['id_conductor'] : null;
+            // FIX: input explicito gana; si NO viene, hereda del padre (nunca NULL).
+            $idSucursal = ! empty($recepcionInput['id_sucursal'])
+                ? (int) $recepcionInput['id_sucursal']
+                : $idSucursalPadre;
+            $segundaPlaca = $recepcionInput['segunda_placa'] ?? null;
+        }
+
+        return RecepcionUnidad::create([
+            'id_empleado_recepcion' => $idEmpleadoRegistro,
+            'id_vehiculo' => $idVehiculo,
+            'id_empresa_transporte' => null,
+            'id_tipo_vehiculo' => null,
+            'id_conductor' => $idConductor,
+            'tipo_ingreso' => 'Recepción de Mineral',
+            'segunda_placa' => $segundaPlaca,
+            'fecha_hora_ingreso' => $fechaIngreso,
+            'fecha_hora_salida' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +2 hours')),
+            'fecha_hora_inicio_pesaje' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +30 minutes')),
+            'fecha_hora_final_pesaje' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +40 minutes')),
+            'evidencias' => null,
+            'observacion' => null,
+            'observacion_salida' => null,
+            'estado' => 'Fuera de Planta',
+            'estado_salida' => 'Vacío',
+            'estado_pesaje' => 'Pesado',
+            'id_sucursal' => $idSucursal,
+            'id_proveedor_minero' => null,
+            'id_empleado_autoriza' => null,
+            'es_programacion' => 0,
+            'fecha_estimada_llegada' => null,
+            'guia_remitente' => null,
+            'guia_transportista' => null,
+            'es_recepcion_ficticia' => true,
+        ]);
+    }
+
+    /**
+     * Genera un TicketBalanza nuevo y devuelve su id.
+     */
+    private static function crearTicketBalanza(): int
+    {
+        $ticketData = CorrelativoHelper::generar(
+            tabla: 'ticket_balanza',
+            prefijo: '',
+            filtros: [],
+            longitudCeros: 0,
+            reseteo: Periodo::Diario,
+            formatoFecha: 'dmy',
+            incluirPrefijo: false,
+        );
+        return DB::table('ticket_balanza')->insertGetId([
+            'correlativo' => $ticketData['correlativo'],
+            'numero_correlativo' => $ticketData['numero_correlativo'],
+            'created_at' => now(),
+        ]);
     }
 
     /**

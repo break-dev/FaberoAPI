@@ -16,5 +16,6 @@ Route::middleware('auth.jwt.custom')->group(function () {
         Route::patch('/distribuciones/{id}/confirmar', 'confirmar_distribucion');
         Route::patch('/distribuciones/{id}/salida', 'registrar_salida');
         Route::patch('/distribuciones/{id}/llegada', 'registrar_llegada');
+        Route::post('/distribuciones/{id}/detalles/{idDetalle}/pesar', 'pesar_distribucion_detalle');
     });
 });

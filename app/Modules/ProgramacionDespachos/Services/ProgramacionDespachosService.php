@@ -356,6 +356,7 @@ class ProgramacionDespachosService
                     'tipo_ingreso' => 'Despacho de Mineral',
                     'segunda_placa' => $segundaPlaca,
                     'fecha_estimada_llegada' => $data['fecha_estimada_llegada'] ?? null,
+                    'estado' => EstadoDistribucion::EnEspera->value,
                     'es_programacion' => 1,
                     'es_recepcion_ficticia' => 0,
                     'created_at' => now()->toDateTimeString(),
@@ -461,7 +462,7 @@ class ProgramacionDespachosService
                     ProgramacionDespachosData::update_recepcion_unidad($recepcionId, [
                         'id_empleado_recepcion' => $idEmpleadoRecepcion,
                         'fecha_hora_ingreso' => now()->toDateTimeString(),
-                        'estado' => 'En Planta',
+                        'estado' => EstadoDistribucion::EnPlanta->value,
                     ]);
                 }
             });
@@ -511,6 +512,7 @@ class ProgramacionDespachosService
                 $recepcionId = self::get_recepcion_unidad_id_para_distribucion($id);
                 if ($recepcionId !== null) {
                     $updates = [
+                        'estado' => EstadoDistribucion::SalioDePlanta->value,
                         'estado_salida' => 'Fuera de Planta',
                         'fecha_hora_salida' => now()->toDateTimeString(),
                     ];
@@ -651,5 +653,131 @@ class ProgramacionDespachosService
         $row = DB::selectOne($sql, ['id' => $idDistribucion]);
 
         return $row ? (int) $row->id : null;
+    }
+
+    /**
+     * Registrar el pesaje (tara/bruto/neto) de un detalle de distribución.
+     * Soporta guardados parciales: solo tara, solo bruto, o ambos.
+     * Genera un ticket_balanza en el primer pesaje y lo persiste.
+     * Calcula merma contra peso_tomado del lote (peso húmedo → peso seco)
+     * y devuelve advertencias si supera el 1%.
+     *
+     * @param  array{peso_tara?: float|int|string|null, peso_bruto?: float|int|string|null}  $data
+     * @return array<string, mixed>
+     */
+    public static function pesar_distribucion_detalle(
+        int $idDistribucion,
+        int $idDetalle,
+        array $data,
+        int $idEmpleadoOperador
+    ): array {
+        $pesoTaraInput = array_key_exists('peso_tara', $data) && $data['peso_tara'] !== null
+            ? (float) $data['peso_tara']
+            : null;
+        $pesoBrutoInput = array_key_exists('peso_bruto', $data) && $data['peso_bruto'] !== null
+            ? (float) $data['peso_bruto']
+            : null;
+
+        if ($pesoTaraInput === null && $pesoBrutoInput === null) {
+            return ApiResponse::error('Debe ingresar al menos peso_tara o peso_bruto.', 422);
+        }
+        if ($pesoTaraInput !== null && $pesoTaraInput <= 0) {
+            return ApiResponse::error('El peso tara debe ser mayor a 0.', 422);
+        }
+        if ($pesoBrutoInput !== null && $pesoBrutoInput <= 0) {
+            return ApiResponse::error('El peso bruto debe ser mayor a 0.', 422);
+        }
+
+        $advertencias = [];
+        $idTicket = null;
+        $pesoNeto = null;
+
+        try {
+            DB::transaction(function () use ($idDistribucion, $idDetalle, $pesoTaraInput, $pesoBrutoInput, &$idTicket, &$pesoNeto, &$advertencias) {
+                $detalle = ProgramacionDespachosData::get_detalle_by_id_with_lote($idDetalle);
+                if (! $detalle) {
+                    throw new \RuntimeException('Detalle de distribución no encontrado.');
+                }
+
+                if ((int) $detalle['id_distribucion'] !== $idDistribucion) {
+                    throw new \RuntimeException('El detalle no pertenece a la distribución indicada.');
+                }
+
+                // Aplicar regla "el enviado pisa, el no enviado conserva".
+                $pesoTaraFinal = $pesoTaraInput !== null
+                    ? $pesoTaraInput
+                    : ($detalle['peso_tara'] !== null ? (float) $detalle['peso_tara'] : 0.0);
+                $pesoBrutoFinal = $pesoBrutoInput !== null
+                    ? $pesoBrutoInput
+                    : ($detalle['peso_bruto'] !== null ? (float) $detalle['peso_bruto'] : 0.0);
+
+                // Validar tara < bruto solo si ambos presentes y > 0.
+                if ($pesoTaraFinal > 0 && $pesoBrutoFinal > 0 && $pesoTaraFinal >= $pesoBrutoFinal) {
+                    throw new \RuntimeException('El peso tara debe ser menor que el peso bruto.');
+                }
+
+                // Generar ticket lazy: solo si no existe.
+                $idTicket = $detalle['id_ticket_balanza'] !== null ? (int) $detalle['id_ticket_balanza'] : null;
+                if (! $idTicket) {
+                    $ticket = ProgramacionDespachosData::generar_ticket_balanza();
+                    $idTicket = $ticket['id'];
+                }
+
+                // Calcular peso_neto solo si ambos > 0.
+                $pesoNetoLocal = ($pesoTaraFinal > 0 && $pesoBrutoFinal > 0)
+                    ? round($pesoBrutoFinal - $pesoTaraFinal, 3)
+                    : null;
+
+                ProgramacionDespachosData::update_detalle_pesaje(
+                    $idDetalle,
+                    $idTicket,
+                    $pesoTaraInput,    // null si no se envió en este save
+                    $pesoBrutoInput,   // null si no se envió en este save
+                    $pesoNetoLocal
+                );
+
+                // Calcular merma solo si peso_neto disponible y humedad > 0.
+                $pesoNeto = $pesoNetoLocal;
+                $humedad = isset($detalle['lote_ley_humedad']) && $detalle['lote_ley_humedad'] !== null
+                    ? (float) $detalle['lote_ley_humedad']
+                    : 0.0;
+                $pesoTomadoHumedo = (float) $detalle['peso_tomado'];
+
+                if ($humedad > 0 && $pesoTomadoHumedo > 0 && $pesoNetoLocal !== null && $pesoNetoLocal > 0) {
+                    $factorSeco = 1 - ($humedad / 100);
+                    $pesoTomadoSeco = $pesoTomadoHumedo * $factorSeco;
+                    $pesoNetoRealSeco = $pesoNetoLocal * $factorSeco;
+                    // Diferencia con signo: real - target. Negativo = merma (falta), positivo = excedente (sobra).
+                    $diferenciaSeca = $pesoNetoRealSeco - $pesoTomadoSeco;
+                    $absDiff = abs($diferenciaSeca);
+                    $mermaPct = $pesoTomadoSeco > 0 ? ($absDiff / $pesoTomadoSeco) * 100 : 0.0;
+
+                    if ($mermaPct > 1.0) {
+                        if ($diferenciaSeca < 0) {
+                            $advertencias[] = sprintf(
+                                'Falta peso vs P.Seco distribuido (Merma: %.2f Kg, -%.2f%%)',
+                                $absDiff,
+                                $mermaPct
+                            );
+                        } else {
+                            $advertencias[] = sprintf(
+                                'Sobra peso vs P.Seco distribuido (Excedente: %.2f Kg, +%.2f%%)',
+                                $absDiff,
+                                $mermaPct
+                            );
+                        }
+                    }
+                }
+            });
+        } catch (\Throwable $e) {
+            return ApiResponse::error($e->getMessage(), 400);
+        }
+
+        return ApiResponse::success([
+            'detalle' => ProgramacionDespachosData::get_detalle_by_id_with_lote($idDetalle),
+            'id_ticket_balanza' => $idTicket,
+            'peso_neto' => $pesoNeto,
+            'advertencias' => $advertencias,
+        ], 'Pesaje registrado correctamente');
     }
 }

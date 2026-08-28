@@ -3,6 +3,8 @@
 namespace App\Modules\ProgramacionDespachos\Data;
 
 use App\Shared\Enums\_Generic\EstadoBase;
+use App\Shared\Enums\_Generic\Periodo;
+use App\Shared\Helpers\CorrelativoHelper;
 use Illuminate\Support\Facades\DB;
 
 class ProgramacionDespachosData
@@ -229,16 +231,25 @@ class ProgramacionDespachosData
                 ddt.id_despacho_detalle,
                 ddt.numero_particion,
                 ddt.peso_tomado,
+                ddt.id_ticket_balanza,
+                ddt.peso_tara,
+                ddt.fecha_hora_peso_tara,
+                ddt.peso_bruto,
+                ddt.fecha_hora_peso_bruto,
+                ddt.peso_neto,
                 dd.id_lote_mineral AS detalle_id_lote_mineral,
                 dd.id_blending AS detalle_id_blending,
                 lm.correlativo AS lote_correlativo,
+                lm.ley_humedad AS lote_ley_humedad,
                 b.correlativo AS blending_correlativo,
-                pr.razon_social AS proveedor_razon_social
+                pr.razon_social AS proveedor_razon_social,
+                tb.correlativo AS ticket_correlativo
             FROM distribucion_detalle ddt
             INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
             LEFT JOIN lote_mineral lm ON lm.id = dd.id_lote_mineral
             LEFT JOIN blending b ON b.id = dd.id_blending
             LEFT JOIN proveedor pr ON pr.id = lm.id_proveedor_minero
+            LEFT JOIN ticket_balanza tb ON tb.id = ddt.id_ticket_balanza
             WHERE ddt.id_distribucion IN ($placeholders)
             ORDER BY ddt.id ASC
             ";
@@ -249,6 +260,14 @@ class ProgramacionDespachosData
                 $row->id_despacho_detalle = (int) $row->id_despacho_detalle;
                 $row->numero_particion = $row->numero_particion !== null ? (int) $row->numero_particion : null;
                 $row->peso_tomado = (float) $row->peso_tomado;
+                $row->id_ticket_balanza = $row->id_ticket_balanza !== null ? (int) $row->id_ticket_balanza : null;
+                $row->peso_tara = $row->peso_tara !== null ? (float) $row->peso_tara : null;
+                $row->fecha_hora_peso_tara = $row->fecha_hora_peso_tara !== null ? (string) $row->fecha_hora_peso_tara : null;
+                $row->peso_bruto = $row->peso_bruto !== null ? (float) $row->peso_bruto : null;
+                $row->fecha_hora_peso_bruto = $row->fecha_hora_peso_bruto !== null ? (string) $row->fecha_hora_peso_bruto : null;
+                $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
+                $row->lote_ley_humedad = $row->lote_ley_humedad !== null ? (float) $row->lote_ley_humedad : null;
+                $row->ticket_correlativo = $row->ticket_correlativo !== null ? (string) $row->ticket_correlativo : null;
                 $row->detalle_id_lote_mineral = $row->detalle_id_lote_mineral !== null ? (int) $row->detalle_id_lote_mineral : null;
                 $row->detalle_id_blending = $row->detalle_id_blending !== null ? (int) $row->detalle_id_blending : null;
                 $distribucionesDetalle[$row->id_distribucion][] = $row;
@@ -635,5 +654,110 @@ class ProgramacionDespachosData
         return DB::table('recepcion_unidad')
             ->where('id', $id)
             ->update($updates) > 0;
+    }
+
+    /**
+     * Obtener un detalle de distribución con la info del lote (para merma y pesaje).
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function get_detalle_by_id_with_lote(int $idDetalle): ?array
+    {
+        $sql = '
+            SELECT
+                ddt.id,
+                ddt.id_distribucion,
+                ddt.id_despacho_detalle,
+                ddt.numero_particion,
+                ddt.peso_tomado,
+                ddt.id_ticket_balanza,
+                ddt.peso_tara,
+                ddt.fecha_hora_peso_tara,
+                ddt.peso_bruto,
+                ddt.fecha_hora_peso_bruto,
+                ddt.peso_neto,
+                dd.id_lote_mineral AS detalle_id_lote_mineral,
+                dd.id_blending AS detalle_id_blending,
+                lm.correlativo AS lote_correlativo,
+                lm.ley_humedad AS lote_ley_humedad,
+                b.correlativo AS blending_correlativo
+            FROM distribucion_detalle ddt
+            INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
+            LEFT JOIN lote_mineral lm ON lm.id = dd.id_lote_mineral
+            LEFT JOIN blending b ON b.id = dd.id_blending
+            WHERE ddt.id = :id
+            LIMIT 1
+        ';
+        $row = DB::selectOne($sql, ['id' => $idDetalle]);
+
+        return $row ? (array) $row : null;
+    }
+
+    /**
+     * Actualizar el pesaje (tara/bruto/neto) de un detalle de distribución.
+     * Acepta guardados parciales: cualquier parámetro nullable se conserva con su valor actual
+     * (mientras que los no-nullable se actualizan + actualizan su fecha correspondiente).
+     */
+    public static function update_detalle_pesaje(
+        int $idDetalle,
+        ?int $idTicketBalanza,
+        ?float $pesoTara,
+        ?float $pesoBruto,
+        ?float $pesoNeto
+    ): bool {
+        // Construir SET dinámico: cada campo no-nullable pisa valor + fecha.
+        $sets = ['id_ticket_balanza = ?'];
+        $params = [$idTicketBalanza];
+
+        if ($pesoTara !== null) {
+            $sets[] = 'peso_tara = ?';
+            $sets[] = 'fecha_hora_peso_tara = NOW()';
+            $params[] = round($pesoTara, 3);
+        }
+        if ($pesoBruto !== null) {
+            $sets[] = 'peso_bruto = ?';
+            $sets[] = 'fecha_hora_peso_bruto = NOW()';
+            $params[] = round($pesoBruto, 3);
+        }
+        if ($pesoNeto !== null) {
+            $sets[] = 'peso_neto = ?';
+            $params[] = round($pesoNeto, 3);
+        }
+
+        $params[] = $idDetalle;
+        $sql = 'UPDATE distribucion_detalle SET ' . implode(', ', $sets) . ' WHERE id = ?';
+
+        $affected = DB::update($sql, $params);
+
+        return $affected > 0;
+    }
+
+    /**
+     * Generar un nuevo ticket_balanza y devolver {id, correlativo}.
+     *
+     * @return array{id:int, correlativo:string}
+     */
+    public static function generar_ticket_balanza(): array
+    {
+        $ticketData = CorrelativoHelper::generar(
+            tabla: 'ticket_balanza',
+            prefijo: '',
+            filtros: [],
+            longitudCeros: 0,
+            reseteo: Periodo::Diario,
+            formatoFecha: 'dmy',
+            incluirPrefijo: false,
+        );
+
+        $id = DB::table('ticket_balanza')->insertGetId([
+            'correlativo' => $ticketData['correlativo'],
+            'numero_correlativo' => $ticketData['numero_correlativo'],
+            'created_at' => now(),
+        ]);
+
+        return [
+            'id' => (int) $id,
+            'correlativo' => (string) $ticketData['correlativo'],
+        ];
     }
 }

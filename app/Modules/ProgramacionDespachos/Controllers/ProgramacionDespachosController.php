@@ -167,4 +167,38 @@ class ProgramacionDespachosController extends Controller
             ProgramacionDespachosService::registrar_llegada($id, (int) $authUser->id_empleado)
         );
     }
+
+    /**
+     * Registrar pesaje (tara/bruto/neto) de un detalle de distribución.
+     * Soporta guardados parciales: solo tara, solo bruto, o ambos.
+     */
+    public function pesar_distribucion_detalle(Request $request, int $id, int $idDetalle): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'peso_tara' => 'nullable|numeric|gt:0',
+            'peso_bruto' => 'nullable|numeric|gt:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(ApiResponse::error($validator->errors()->first()), 400);
+        }
+
+        $authUser = $request->attributes->get('auth_user');
+        if (! $authUser || empty($authUser->id_empleado)) {
+            return response()->json(ApiResponse::error('No se pudo determinar el empleado logueado.'), 401);
+        }
+
+        $validated = $validator->validated();
+        $pesoTara = array_key_exists('peso_tara', $validated) ? $validated['peso_tara'] : null;
+        $pesoBruto = array_key_exists('peso_bruto', $validated) ? $validated['peso_bruto'] : null;
+
+        return response()->json(
+            ProgramacionDespachosService::pesar_distribucion_detalle(
+                $id,
+                $idDetalle,
+                ['peso_tara' => $pesoTara, 'peso_bruto' => $pesoBruto],
+                (int) $authUser->id_empleado
+            )
+        );
+    }
 }

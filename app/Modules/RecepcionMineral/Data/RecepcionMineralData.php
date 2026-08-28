@@ -39,7 +39,8 @@ class RecepcionMineralData
             ru.estado_salida,
             ru.estado_pesaje,
             ru.id_sucursal AS id_sucursal,
-            ru.es_recepcion_ficticia
+            ru.es_recepcion_ficticia,
+            ru.es_programacion
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -66,15 +67,111 @@ class RecepcionMineralData
 
         $results = DB::select($sql, $params);
 
+        // IDs de recepciones tipo Despacho para cargar sus detalles de distribución.
+        $despachoIds = [];
+        foreach ($results as $r) {
+            if (($r->tipo_ingreso ?? null) === 'Despacho de Mineral') {
+                $despachoIds[] = (int) $r->id;
+            }
+        }
+        $distribucionesPorRecepcion = self::get_distribucion_detalles_by_recepciones($despachoIds);
+
         foreach ($results as $item) {
             if (isset($item->evidencias)) {
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
             }
             // Obtener los lotes de esta recepción
             $item->lotes = self::get_lotes_by_recepcion($item->id);
+            // Adjuntar los detalles de distribución (vacío si no es despacho o no hay detalles)
+            $item->distribucion_detalles = $distribucionesPorRecepcion[(int) $item->id] ?? [];
         }
 
         return $results;
+    }
+
+    /**
+     * Obtener los detalles de distribución para varias recepciones (solo aplica a recepciones tipo Despacho).
+     *
+     * @param  array<int, int>  $idRecepcionesUnidad
+     * @return array<int, array<int, object>>  indexado por id de recepción_unidad
+     */
+    public static function get_distribucion_detalles_by_recepciones(array $idRecepcionesUnidad): array
+    {
+        $out = [];
+        if (empty($idRecepcionesUnidad)) {
+            return $out;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($idRecepcionesUnidad), '?'));
+        $sql = "
+            SELECT
+                ddt.id,
+                ddt.id_distribucion,
+                ddt.id_despacho_detalle,
+                ddt.numero_particion,
+                ddt.peso_tomado,
+                ddt.id_ticket_balanza,
+                ddt.peso_tara,
+                ddt.fecha_hora_peso_tara,
+                ddt.peso_bruto,
+                ddt.fecha_hora_peso_bruto,
+                ddt.peso_neto,
+                ru.id AS recepcion_unidad_id,
+                dd.id_lote_mineral AS detalle_id_lote_mineral,
+                dd.id_blending AS detalle_id_blending,
+                lm.correlativo AS lote_correlativo,
+                lm.ley_humedad AS lote_ley_humedad,
+                b.correlativo AS blending_correlativo,
+                pr.razon_social AS proveedor_razon_social,
+                tb.correlativo AS ticket_correlativo,
+                d.correlativo AS despacho_correlativo,
+                d.es_anulado AS despacho_es_anulado
+            FROM distribucion_detalle ddt
+            INNER JOIN distribucion di ON di.id = ddt.id_distribucion
+            INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
+            INNER JOIN despacho d ON d.id = dd.id_despacho
+            INNER JOIN recepcion_unidad ru
+                ON ru.id_empresa_transporte = di.id_empresa_transporte
+                AND ru.id_vehiculo = di.id_vehiculo
+                AND ru.es_programacion = 1
+                AND ru.es_recepcion_ficticia = 0
+                AND ru.tipo_ingreso = 'Despacho de Mineral'
+                AND ru.id_sucursal <=> di.id_sucursal
+                AND ru.fecha_estimada_llegada <=> di.fecha_estimada_llegada
+                AND ru.created_at BETWEEN DATE_SUB(di.created_at, INTERVAL 2 SECOND) AND DATE_ADD(di.created_at, INTERVAL 2 SECOND)
+            LEFT JOIN lote_mineral lm ON lm.id = dd.id_lote_mineral
+            LEFT JOIN blending b ON b.id = dd.id_blending
+            LEFT JOIN proveedor pr ON pr.id = lm.id_proveedor_minero
+            LEFT JOIN ticket_balanza tb ON tb.id = ddt.id_ticket_balanza
+            WHERE ru.id IN ($placeholders)
+            ORDER BY ru.id, ddt.id ASC
+        ";
+        $rows = DB::select($sql, $idRecepcionesUnidad);
+
+        foreach ($rows as $r) {
+            $r->id = (int) $r->id;
+            $r->id_distribucion = (int) $r->id_distribucion;
+            $r->id_despacho_detalle = (int) $r->id_despacho_detalle;
+            $r->numero_particion = $r->numero_particion !== null ? (int) $r->numero_particion : null;
+            $r->peso_tomado = (float) $r->peso_tomado;
+            $r->id_ticket_balanza = $r->id_ticket_balanza !== null ? (int) $r->id_ticket_balanza : null;
+            $r->peso_tara = $r->peso_tara !== null ? (float) $r->peso_tara : null;
+            $r->fecha_hora_peso_tara = $r->fecha_hora_peso_tara !== null ? (string) $r->fecha_hora_peso_tara : null;
+            $r->peso_bruto = $r->peso_bruto !== null ? (float) $r->peso_bruto : null;
+            $r->fecha_hora_peso_bruto = $r->fecha_hora_peso_bruto !== null ? (string) $r->fecha_hora_peso_bruto : null;
+            $r->peso_neto = $r->peso_neto !== null ? (float) $r->peso_neto : null;
+            $r->lote_ley_humedad = $r->lote_ley_humedad !== null ? (float) $r->lote_ley_humedad : null;
+            $r->ticket_correlativo = $r->ticket_correlativo !== null ? (string) $r->ticket_correlativo : null;
+            $r->despacho_correlativo = $r->despacho_correlativo !== null ? (string) $r->despacho_correlativo : null;
+            $r->despacho_es_anulado = (bool) $r->despacho_es_anulado;
+            $r->detalle_id_lote_mineral = $r->detalle_id_lote_mineral !== null ? (int) $r->detalle_id_lote_mineral : null;
+            $r->detalle_id_blending = $r->detalle_id_blending !== null ? (int) $r->detalle_id_blending : null;
+            $r->recepcion_unidad_id = (int) $r->recepcion_unidad_id;
+
+            $out[$r->recepcion_unidad_id][] = $r;
+        }
+
+        return $out;
     }
 
     /**
@@ -279,7 +376,8 @@ class RecepcionMineralData
             ru.estado_salida,
             ru.estado_pesaje,
             ru.id_sucursal AS id_sucursal,
-            ru.es_recepcion_ficticia
+            ru.es_recepcion_ficticia,
+            ru.es_programacion
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -298,6 +396,12 @@ class RecepcionMineralData
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
             }
             $item->lotes = self::get_lotes_by_recepcion($id);
+            if (($item->tipo_ingreso ?? null) === 'Despacho de Mineral') {
+                $detalles = self::get_distribucion_detalles_by_recepciones([$id]);
+                $item->distribucion_detalles = $detalles[$id] ?? [];
+            } else {
+                $item->distribucion_detalles = [];
+            }
 
             return (array) $item;
         }
@@ -486,31 +590,31 @@ class RecepcionMineralData
             lot.correlativo AS correlativo,
             tb.id AS ticket_numero,
             tb.created_at AS fecha_impresion,
-            
+
             vh.placa AS placa,
-            
+
             lot.tipo_producto,
             lot.tipo_mineral,
-            
+
             gui.guia_remitente AS guia_remision,
-            
+
             pr.ruc AS ruc_proveedor,
             pr.razon_social AS proveedor,
-            
+
             CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, '')) AS conductor,
             cnd.numero_licencia AS licencia_conductor,
-            
+
             emp.razon_social AS empresa_transporte,
-            
+
             CASE WHEN gui.sin_guia_transportista = 1 OR gui.guia_transportista IS NULL OR gui.guia_transportista = '' THEN NULL ELSE gui.guia_transportista END AS guia_transporte,
-            
+
             -- sucursal (Destino)
             sc.nombre AS nombre_sucursal,
             sc.direccion AS direccion_sucursal,
             dep_sc.nombre AS departamento_sucursal,
             prv_sc.nombre AS provincia_sucursal,
             dis_sc.nombre AS distrito_sucursal,
-            
+
             -- ORIGEN: concesion de la guia; si la guia no trae, usar la del proveedor
             cns_origen.nombre          AS nombre_concesion,
             cns_origen.codigo_reinfo   AS codigo_reinfo_concesion,
@@ -518,17 +622,21 @@ class RecepcionMineralData
             prv_cori.nombre            AS provincia_concesion,
             dis_cori.nombre            AS distrito_concesion,
             zo.nombre AS zona_origen_nombre,
-            
+
             -- observaciones
             NULL AS observacion_peso_inicial,
             NULL AS observacion_peso_final,
 
-            -- pesos y sus fechas
-            lot.fecha_hora_peso_inicial,
-            lot.peso_inicial AS peso_bruto,
-            lot.fecha_hora_peso_final,
-            lot.peso_final AS peso_tara,
-            lot.peso_neto AS peso_neto,
+            -- pesos y sus fechas (priorizar distribucion_detalle si existe pesaje, sino caer al lote)
+            COALESCE(ddt.peso_bruto, lot.peso_inicial) AS peso_bruto,
+            COALESCE(ddt.fecha_hora_peso_bruto, lot.fecha_hora_peso_inicial) AS fecha_hora_peso_inicial,
+            COALESCE(ddt.peso_tara, lot.peso_final) AS peso_tara,
+            COALESCE(ddt.fecha_hora_peso_tara, lot.fecha_hora_peso_final) AS fecha_hora_peso_final,
+            COALESCE(ddt.peso_neto, lot.peso_neto) AS peso_neto,
+
+            -- Datos de distribución (última distribución activa del lote)
+            desp_info.despacho_correlativo AS despacho_correlativo,
+            desp_info.planta_destino_nombre AS planta_destino_nombre,
 
             -- operador
             CONCAT(COALESCE(eml.apellido, ''), ' ', COALESCE(eml.nombre, '')) AS operador,
@@ -565,17 +673,43 @@ class RecepcionMineralData
             LEFT JOIN provincia    prv_cori ON prv_cori.id = cns_origen.id_provincia
             LEFT JOIN distrito     dis_cori ON dis_cori.id = cns_origen.id_distrito
             LEFT JOIN zona_origen zo ON zo.id = lot.id_zona_origen
+        -- Último pesaje con ticket del lote (de distribución si existe)
+        LEFT JOIN (
+            SELECT dd.id_lote_mineral, ddt.peso_tara, ddt.fecha_hora_peso_tara, ddt.peso_bruto, ddt.fecha_hora_peso_bruto, ddt.peso_neto
+            FROM distribucion_detalle ddt
+            INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
+            WHERE dd.id_lote_mineral = ? AND ddt.id_ticket_balanza IS NOT NULL
+            ORDER BY ddt.id DESC
+            LIMIT 1
+        ) ddt ON ddt.id_lote_mineral = lot.id
+        -- Última distribución activa del lote (para contexto de despacho)
+        LEFT JOIN (
+            SELECT
+                dd.id_lote_mineral,
+                d.correlativo AS despacho_correlativo,
+                pd.razon_social AS planta_destino_nombre
+            FROM distribucion_detalle ddt
+            INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
+            INNER JOIN distribucion di ON di.id = ddt.id_distribucion
+            INNER JOIN despacho d ON d.id = di.id_despacho
+            LEFT JOIN planta_destino pd ON pd.id = d.id_planta_destino
+            WHERE dd.id_lote_mineral = ?
+            ORDER BY di.created_at DESC, ddt.id DESC
+            LIMIT 1
+        ) desp_info ON desp_info.id_lote_mineral = lot.id
         LEFT JOIN empleado eml ON eml.id = lot.id_empleado_registro
         LEFT JOIN cargo cr ON cr.id = eml.id_cargo
-        WHERE lot.id = :id_lote
+        WHERE lot.id = ?
         LIMIT 1
         ";
 
-        $item = DB::selectOne($sql, ['id_lote' => $loteId]);
+        $item = DB::selectOne($sql, [$loteId, $loteId, $loteId]);
         if ($item) {
             $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
             $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;
             $item->peso_neto = $item->peso_neto !== null ? (float) $item->peso_neto : null;
+            $item->despacho_correlativo = $item->despacho_correlativo !== null ? (string) $item->despacho_correlativo : null;
+            $item->planta_destino_nombre = $item->planta_destino_nombre !== null ? (string) $item->planta_destino_nombre : null;
 
             return (array) $item;
         }

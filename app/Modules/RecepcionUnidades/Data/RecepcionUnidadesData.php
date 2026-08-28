@@ -193,7 +193,7 @@ class RecepcionUnidadesData
             'id_tipo_vehiculo' => $data['id_tipo_vehiculo'],
             'id_conductor' => $data['id_conductor'],
             'id_proveedor_minero' => $data['id_proveedor_minero'] ?? null,
-            'tipo_ingreso' => $data['tipo_ingreso'] ?? 'Recepción de Unidad',
+            'tipo_ingreso' => $data['tipo_ingreso'] ?? 'Recepción de Mineral',
             'segunda_placa' => $data['segunda_placa'] ?? null,
             'fecha_hora_ingreso' => now()->toDateTimeString(),
             'evidencias' => $data['evidencias'] ?? [],

@@ -8,16 +8,39 @@ use Illuminate\Support\Facades\DB;
 class BlendingData
 {
     /**
-     * Obtener lista de lotes y blendings disponibles para realizar mezclas.
+     * Obtener lista de lotes disponibles para realizar mezclas.
+     *
+     * Criterios de elegibilidad (1 fila por lote):
+     *  - Lote valorizado y pagado (existe cadena vcd -> vc -> cc con cc.estado = 'Pagado').
+     *  - Lote validado en distribución (`lote_mineral.esta_validado = 1`).
+     *  - La `guia_primer_tramo` asociada no debe estar anulada.
+     *  - Si el lote tiene particiones activas, TODAS deben estar validadas
+     *    (`esta_validado = 1`).
+     *  - El `lote_guia` elegido debe referenciar una partición validada y activa
+     *    si está a nivel de partición.
+     *
+     * Estructura de salida:
+     *  - `tipo_origen = "lote"`, `id_reblending = null`.
+     *  - Una única fila por lote, aunque tenga particiones.
+     *  - `id_lote_guia`: `MIN(lg.id)` de una guía válida del lote (garantiza 1 fila
+     *    por lote al combinarlo con `GROUP BY lm.id`).
+     *  - `codigo` / `correlativo_origen`: `lm.correlativo` (sin sufijo de partición).
+     *  - `tmh_disponible`: `COALESCE(lm.peso_actual, lm.peso_neto)` — el sistema
+     *    descuenta el peso a nivel de lote padre en `BlendingService::crear_blending`.
+     *
+     * La estructura sigue el patrón canónico de
+     * `App\Data\ValorizacionCompraAuxData::get_proveedores_lotes_para_valorizar`
+     * (resolución de lote vía `COALESCE(lg.id_lote_mineral, ...)`, guía activa,
+     * validaciones por partición).
      *
      * @return array<int, object>
      */
     public static function get_disponibles(?int $idProveedor = null, ?int $idEmpresa = null): array
     {
-        // 1. Lotes valorizados y pagados con peso_actual > 0
-        $sqlLotes = '
-            SELECT DISTINCT
-                lg.id AS id_lote_guia,
+        $sql = '
+            SELECT
+                lm.id,
+                MIN(lg.id) AS id_lote_guia,
                 NULL AS id_reblending,
                 "lote" AS tipo_origen,
                 lm.correlativo AS codigo,
@@ -31,52 +54,58 @@ class BlendingData
                 COALESCE(lm.ley_oro, 0) AS ley_oro,
                 COALESCE(lm.ley_plata, 0) AS ley_plata
             FROM lote_guia lg
-            INNER JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+            INNER JOIN lote_mineral lm ON lm.id = COALESCE(
+                lg.id_lote_mineral,
+                (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
+            )
+            LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
             LEFT JOIN empresa emp ON emp.id = lm.id_empresa
             INNER JOIN proveedor p ON p.id = lm.id_proveedor_minero
             INNER JOIN valorizacion_compramineral_detalle vcd ON vcd.id_lote_guia = lg.id
             INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
             INNER JOIN comprobante_compra cc ON cc.id_valorizacion_compra = vc.id
             WHERE cc.estado = "Pagado"
+              AND lm.esta_validado = 1
               AND COALESCE(lm.peso_actual, lm.peso_neto) > 0
+              -- La guía no debe estar anulada.
+              AND COALESCE(gpt.estado, "Activo") <> "Anulado"
+              -- Si el lote tiene particiones activas, TODAS deben estar validadas.
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM particion_lote_mineral plm_check
+                  WHERE plm_check.id_lote_mineral = lm.id
+                    AND plm_check.estado = "Activo"
+                    AND plm_check.esta_validado = 0
+              )
+              -- Si lote_guia es a nivel de partición, esa partición debe estar
+              -- validada y activa.
+              AND (
+                  lg.id_particion_lote_mineral IS NULL
+                  OR EXISTS (
+                      SELECT 1
+                      FROM particion_lote_mineral plm
+                      WHERE plm.id = lg.id_particion_lote_mineral
+                        AND plm.estado = "Activo"
+                        AND plm.esta_validado = 1
+                  )
+              )
+            GROUP BY lm.id, lm.correlativo, lm.id_empresa, emp.razon_social,
+                     p.id, p.razon_social, lm.peso_actual, lm.peso_neto,
+                     lm.ley_humedad, lm.ley_oro, lm.ley_plata
         ';
 
-        $paramsLotes = [];
+        $params = [];
         if ($idProveedor !== null) {
-            $sqlLotes .= ' AND lm.id_proveedor_minero = :id_proveedor';
-            $paramsLotes['id_proveedor'] = $idProveedor;
+            $sql .= ' AND lm.id_proveedor_minero = :id_proveedor';
+            $params['id_proveedor'] = $idProveedor;
         }
 
         if ($idEmpresa !== null) {
-            $sqlLotes .= ' AND lm.id_empresa = :id_empresa';
-            $paramsLotes['id_empresa'] = $idEmpresa;
+            $sql .= ' AND lm.id_empresa = :id_empresa';
+            $params['id_empresa'] = $idEmpresa;
         }
 
-        $lotes = DB::select($sqlLotes, $paramsLotes);
-
-        // 2. Blendings anteriores con peso_actual > 0
-        $sqlBlendings = '
-            SELECT
-                NULL AS id_lote_guia,
-                b.id AS id_reblending,
-                "blending" AS tipo_origen,
-                b.correlativo AS codigo,
-                b.correlativo AS correlativo_origen,
-                NULL AS id_empresa,
-                NULL AS empresa_nombre,
-                NULL AS id_proveedor,
-                "Blending" AS proveedor_nombre,
-                b.peso_actual AS tmh_disponible,
-                COALESCE(b.ley_humedad, 0) AS ley_humedad,
-                COALESCE(b.ley_oro, 0) AS ley_oro,
-                COALESCE(b.ley_plata, 0) AS ley_plata
-            FROM blending b
-            WHERE b.peso_actual > 0
-        ';
-
-        $blendings = ($idProveedor === null && $idEmpresa === null) ? DB::select($sqlBlendings) : [];
-
-        $items = array_merge($lotes, $blendings);
+        $items = DB::select($sql, $params);
 
         foreach ($items as $r) {
             $r->id_lote_guia = $r->id_lote_guia !== null ? (int) $r->id_lote_guia : null;

@@ -130,15 +130,7 @@ class RecepcionMineralData
             INNER JOIN distribucion di ON di.id = ddt.id_distribucion
             INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
             INNER JOIN despacho d ON d.id = dd.id_despacho
-            INNER JOIN recepcion_unidad ru
-                ON ru.id_empresa_transporte = di.id_empresa_transporte
-                AND ru.id_vehiculo = di.id_vehiculo
-                AND ru.es_programacion = 1
-                AND ru.es_recepcion_ficticia = 0
-                AND ru.tipo_ingreso = 'Despacho de Mineral'
-                AND ru.id_sucursal <=> di.id_sucursal
-                AND ru.fecha_estimada_llegada <=> di.fecha_estimada_llegada
-                AND ru.created_at BETWEEN DATE_SUB(di.created_at, INTERVAL 2 SECOND) AND DATE_ADD(di.created_at, INTERVAL 2 SECOND)
+            INNER JOIN recepcion_unidad ru ON ru.id_distribucion = di.id
             LEFT JOIN lote_mineral lm ON lm.id = dd.id_lote_mineral
             LEFT JOIN blending b ON b.id = dd.id_blending
             LEFT JOIN proveedor pr ON pr.id = lm.id_proveedor_minero
@@ -591,7 +583,7 @@ class RecepcionMineralData
             tb.id AS ticket_numero,
             tb.created_at AS fecha_impresion,
 
-            vh.placa AS placa,
+            CASE WHEN du.unidad_id IS NOT NULL THEN veh_unidad.placa ELSE vh.placa END AS placa,
 
             lot.tipo_producto,
             lot.tipo_mineral,
@@ -601,10 +593,14 @@ class RecepcionMineralData
             pr.ruc AS ruc_proveedor,
             pr.razon_social AS proveedor,
 
-            CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, '')) AS conductor,
-            cnd.numero_licencia AS licencia_conductor,
+            CASE WHEN du.unidad_id IS NOT NULL THEN
+                CONCAT(COALESCE(cnd_unidad.apellido, ''), ' ', COALESCE(cnd_unidad.nombre, ''))
+            ELSE
+                CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, ''))
+            END AS conductor,
+            CASE WHEN du.unidad_id IS NOT NULL THEN cnd_unidad.numero_licencia ELSE cnd.numero_licencia END AS licencia_conductor,
 
-            emp.razon_social AS empresa_transporte,
+            CASE WHEN du.unidad_id IS NOT NULL THEN emp_unidad.razon_social ELSE emp.razon_social END AS empresa_transporte,
 
             CASE WHEN gui.sin_guia_transportista = 1 OR gui.guia_transportista IS NULL OR gui.guia_transportista = '' THEN NULL ELSE gui.guia_transportista END AS guia_transporte,
 
@@ -697,13 +693,34 @@ class RecepcionMineralData
             ORDER BY di.created_at DESC, ddt.id DESC
             LIMIT 1
         ) desp_info ON desp_info.id_lote_mineral = lot.id
+        -- Unidad del despacho (cuando el pesaje fue vía distribución): lleva la placa,
+        -- transportista y conductor que el usuario ingresó al pesar, no los del lote original.
+        LEFT JOIN (
+            SELECT
+                dd.id_lote_mineral,
+                ru_unidad.id AS unidad_id,
+                ru_unidad.id_vehiculo AS unidad_vehiculo_id,
+                ru_unidad.id_empresa_transporte AS unidad_emp_trans_id,
+                ru_unidad.id_conductor AS unidad_conductor_id
+            FROM distribucion_detalle ddt_unidad
+            INNER JOIN distribucion di_unidad ON di_unidad.id = ddt_unidad.id_distribucion
+            INNER JOIN despacho_detalle dd ON dd.id = ddt_unidad.id_despacho_detalle
+            INNER JOIN recepcion_unidad ru_unidad ON ru_unidad.id_distribucion = di_unidad.id
+            WHERE dd.id_lote_mineral = ?
+              AND ddt_unidad.id_ticket_balanza IS NOT NULL
+            ORDER BY ddt_unidad.id DESC
+            LIMIT 1
+        ) du ON du.id_lote_mineral = lot.id
+        LEFT JOIN vehiculo veh_unidad ON veh_unidad.id = du.unidad_vehiculo_id
+        LEFT JOIN empresa_transporte emp_unidad ON emp_unidad.id = du.unidad_emp_trans_id
+        LEFT JOIN conductor cnd_unidad ON cnd_unidad.id = du.unidad_conductor_id
         LEFT JOIN empleado eml ON eml.id = lot.id_empleado_registro
         LEFT JOIN cargo cr ON cr.id = eml.id_cargo
         WHERE lot.id = ?
         LIMIT 1
         ";
 
-        $item = DB::selectOne($sql, [$loteId, $loteId, $loteId]);
+        $item = DB::selectOne($sql, [$loteId, $loteId, $loteId, $loteId]);
         if ($item) {
             $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
             $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;

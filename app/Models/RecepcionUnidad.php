@@ -14,6 +14,7 @@ class RecepcionUnidad extends Model
     public $timestamps = false;
 
     protected $fillable = [
+        'id_distribucion',
         'id_empleado_recepcion',
         'id_vehiculo',
         'id_empresa_transporte',

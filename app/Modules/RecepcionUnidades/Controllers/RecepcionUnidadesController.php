@@ -69,7 +69,7 @@ class RecepcionUnidadesController extends Controller
             'id_tipo_vehiculo' => (int) $request->input('id_tipo_vehiculo'),
             'id_conductor' => (int) $request->input('id_conductor'),
             'id_proveedor_minero' => $request->input('id_proveedor_minero') ? (int) $request->input('id_proveedor_minero') : null,
-            'tipo_ingreso' => $request->input('tipo_ingreso', 'Recepción de Unidad'),
+            'tipo_ingreso' => $request->input('tipo_ingreso', 'Recepción de Mineral'),
             'segunda_placa' => $request->input('segunda_placa'),
             'observacion' => $request->input('observacion'),
             'id_sucursal' => (int) $request->input('id_sucursal'),
@@ -130,6 +130,11 @@ class RecepcionUnidadesController extends Controller
             'observacion_salida' => 'nullable|string',
         ]);
 
+        $authUser = $request->attributes->get('auth_user');
+        if (! $authUser || empty($authUser->id_empleado)) {
+            return response()->json(ApiResponse::error('No se pudo determinar el empleado logueado.'), 401);
+        }
+
         $evidencias = [];
         if ($request->hasFile('evidencias')) {
             $files = $request->file('evidencias');
@@ -143,7 +148,8 @@ class RecepcionUnidadesController extends Controller
             $id,
             $request->input('estado_salida'),
             $request->input('observacion_salida'),
-            $evidencias
+            $evidencias,
+            (int) $authUser->id_empleado
         );
 
         return response()->json($result);

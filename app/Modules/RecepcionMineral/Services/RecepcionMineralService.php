@@ -377,7 +377,15 @@ class RecepcionMineralService
     }
 
     /**
-     * Cerrar el proceso de balanza de una recepción
+     * Cerrar el proceso de balanza de una recepción.
+     *
+     * Bifurca la validación según `tipo_ingreso`:
+     *   - "Recepción de Mineral" → exige `lote_mineral` con `peso_final` registrado.
+     *   - "Despacho de Mineral" → exige `distribucion_detalle` con `peso_neto` registrado.
+     *
+     * En ambos casos sella `recepcion_unidad.estado_pesaje = 'Pesado'` y
+     * `fecha_hora_final_pesaje`, lo que automáticamente saca la unidad de la
+     * lista de Balanza (filtro `estado_pesaje IN ('Sin Pesar', 'En Proceso')`).
      */
     public static function cerrar_proceso(int $id): array
     {
@@ -386,14 +394,40 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró el registro de recepción.');
         }
 
-        // Validación: que tenga al menos un lote y que todos los lotes tengan peso_final registrado
-        $lotes = LoteMineral::where('id_recepcion_unidad', $id)->get();
-        if ($lotes->isEmpty()) {
-            return ApiResponse::error('Debe registrar al menos un lote de mineral para esta unidad.');
-        }
-        foreach ($lotes as $lote) {
-            if ($lote->peso_final === null) {
-                return ApiResponse::error("El lote {$lote->correlativo} no tiene registrado su peso final.");
+        $tipoIngreso = $recepcion->tipo_ingreso;
+
+        if ($tipoIngreso === 'Despacho de Mineral') {
+            $idDistribucion = DB::table('recepcion_unidad')
+                ->where('id', $id)
+                ->value('id_distribucion');
+
+            if (! $idDistribucion) {
+                return ApiResponse::error('La unidad de despacho no tiene una distribución asociada.');
+            }
+
+            $detalles = DB::table('distribucion_detalle')
+                ->where('id_distribucion', $idDistribucion)
+                ->get();
+
+            if ($detalles->isEmpty()) {
+                return ApiResponse::error('Debe registrar al menos un detalle de distribución con peso.');
+            }
+
+            foreach ($detalles as $detalle) {
+                if ($detalle->peso_neto === null) {
+                    return ApiResponse::error('Faltan detalles por pesar (peso_neto NULL).');
+                }
+            }
+        } else {
+            // Recepción de Mineral (flujo histórico).
+            $lotes = LoteMineral::where('id_recepcion_unidad', $id)->get();
+            if ($lotes->isEmpty()) {
+                return ApiResponse::error('Debe registrar al menos un lote de mineral para esta unidad.');
+            }
+            foreach ($lotes as $lote) {
+                if ($lote->peso_final === null) {
+                    return ApiResponse::error("El lote {$lote->correlativo} no tiene registrado su peso final.");
+                }
             }
         }
 

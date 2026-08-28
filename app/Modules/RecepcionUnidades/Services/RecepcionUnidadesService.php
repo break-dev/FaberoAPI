@@ -5,11 +5,14 @@ namespace App\Modules\RecepcionUnidades\Services;
 use App\Models\RecepcionUnidad;
 use App\Models\RecepcionVisita;
 use App\Models\RecepcionVisitaDetalle;
+use App\Modules\ProgramacionDespachos\Data\ProgramacionDespachosData;
+use App\Modules\ProgramacionDespachos\Services\ProgramacionDespachosService;
 use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Shared\Enums\_Generic\EstadoVisita;
 use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\ApiResponse;
 use App\Modules\RecepcionVisitas\Services\RecepcionVisitasService;
+use Illuminate\Support\Facades\Log;
 
 class RecepcionUnidadesService
 {
@@ -83,7 +86,7 @@ class RecepcionUnidadesService
     /**
      * Registrar la salida de una unidad.
      */
-    public static function registrar_salida(int $id, string $estadoSalida, ?string $observacionSalida, array $evidencias = []): array
+    public static function registrar_salida(int $id, string $estadoSalida, ?string $observacionSalida, array $evidencias, int $idEmpleadoOperador): array
     {
         $recepcion = RecepcionUnidad::find($id);
         if (! $recepcion) {
@@ -138,6 +141,22 @@ class RecepcionUnidadesService
             ];
 
             RecepcionVisitaDetalle::where('id_recepcion_visita', $visita->id)->update($updateDetalleData);
+        }
+
+        $distribucionId = ProgramacionDespachosData::get_distribucion_id_for_recepcion_unidad($id);
+        if ($distribucionId !== null) {
+            $result = ProgramacionDespachosService::registrar_salida(
+                $distribucionId,
+                $idEmpleadoOperador,
+                $observacionSalida
+            );
+            if (! ($result['success'] ?? false)) {
+                Log::warning('Auto-registrar salida de distribución {id} desde recepción unidad {ru} falló: {msg}', [
+                    'id' => $distribucionId,
+                    'ru' => $id,
+                    'msg' => $result['message'] ?? 'unknown',
+                ]);
+            }
         }
 
         $updated = RecepcionUnidadesData::get_recepcion_by_id($id);

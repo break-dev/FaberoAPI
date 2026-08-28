@@ -189,17 +189,11 @@ class ProgramacionDespachosData
         LEFT JOIN empresa_transporte et2 ON et2.id = di.id_empresa_transporte_carreta
         LEFT JOIN vehiculo v2 ON v2.id = di.id_vehiculo_carreta
         LEFT JOIN empleado emp_reg ON emp_reg.id = di.id_empleado_registro
-        LEFT JOIN recepcion_unidad ru ON ru.id_tipo_vehiculo = v.id_tipo_vehiculo
-            AND ru.id_empresa_transporte = di.id_empresa_transporte
-            AND ru.id_vehiculo = di.id_vehiculo
-            AND ru.es_programacion = 1
-            AND ru.es_recepcion_ficticia = 0
-            AND ru.tipo_ingreso = "Despacho de Mineral"
-            AND ru.id_sucursal = di.id_sucursal
-            AND ru.fecha_estimada_llegada = di.fecha_estimada_llegada
+        LEFT JOIN recepcion_unidad ru ON ru.id_distribucion = di.id
         LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN conductor c ON c.id = ru.id_conductor
         WHERE di.id_despacho = :id
+          AND COALESCE(ru.estado_pesaje, "") <> "Pesado"
         ORDER BY di.created_at DESC
         ';
 
@@ -521,6 +515,19 @@ class ProgramacionDespachosData
     }
 
     /**
+     * Obtener el id_distribucion vinculado a una recepcion_unidad (nullable).
+     * Lookup directo por columna; sin heurística de JOINs.
+     */
+    public static function get_distribucion_id_for_recepcion_unidad(int $idRecepcionUnidad): ?int
+    {
+        $row = DB::table('recepcion_unidad')
+            ->where('id', $idRecepcionUnidad)
+            ->value('id_distribucion');
+
+        return $row !== null ? (int) $row : null;
+    }
+
+    /**
      * Verificar si ya existe una distribución (en este mismo despacho) con la misma fecha_estimada_llegada (para warning no bloqueante).
      *
      * @return array<int, object>
@@ -584,7 +591,7 @@ class ProgramacionDespachosData
     }
 
     /**
-     * Verificar si todas las distribuciones del despacho están en En Espera (para anular).
+     * Verificar si todas las distribuciones del despacho están en En Espera (para Anular).
      */
     public static function all_distribuciones_en_estado(int $idDespacho, string $estadoEsperado): bool
     {
@@ -606,7 +613,7 @@ class ProgramacionDespachosData
     /**
      * Marcar despacho como anulado.
      */
-    public static function anular_despacho(int $id, int $idEmpleadoAnulacion): bool
+    public static function Anular_despacho(int $id, int $idEmpleadoAnulacion): bool
     {
         return DB::table('despacho')
             ->where('id', $id)
@@ -619,7 +626,7 @@ class ProgramacionDespachosData
     }
 
     /**
-     * Restaurar peso_actual de los despacho_detalle (al anular).
+     * Restaurar peso_actual de los despacho_detalle (al Anular).
      */
     public static function restaurar_peso_actual_despacho_detalles(int $idDespacho): void
     {

@@ -136,7 +136,7 @@ class ProgramacionDespachosService
                     }
                     if ($pesoTomado > $pesoDisponible) {
                         throw new \RuntimeException(sprintf(
-                            'peso_tomado (%.3f TN) excede el peso disponible (%.3f TN) de uno de los items.',
+                            'peso_tomado (%.3f KG) excede el peso disponible (%.3f KG) de uno de los items.',
                             $pesoTomado,
                             $pesoDisponible
                         ));
@@ -284,15 +284,18 @@ class ProgramacionDespachosService
                         throw new \RuntimeException('peso_tomado debe ser mayor a 0 en cada detalle.');
                     }
 
+                    // Validar contra el peso_actual del item (despacho_detalle), que es
+                    // la fuente de verdad para el saldo disponible de este item específico.
                     $dd = ProgramacionDespachosData::get_despacho_detalle($idDespachoDetalle);
                     if (! $dd || (int) $dd['id_despacho'] !== $idDespacho) {
                         throw new \RuntimeException('Uno de los despacho_detalle no pertenece al despacho.');
                     }
-                    if ((float) $dd['peso_actual'] < $pesoTomado) {
+                    $pesoDisponibleItem = (float) $dd['peso_actual'];
+                    if ($pesoTomado > $pesoDisponibleItem) {
                         throw new \RuntimeException(sprintf(
-                            'peso_tomado (%.3f TN) excede el peso disponible (%.3f TN) de uno de los items.',
+                            'peso_tomado (%.3f KG) excede el peso disponible (%.3f KG) de uno de los items.',
                             $pesoTomado,
-                            (float) $dd['peso_actual']
+                            $pesoDisponibleItem
                         ));
                     }
 
@@ -347,6 +350,7 @@ class ProgramacionDespachosService
                 }
 
                 $idRecepcionUnidad = ProgramacionDespachosData::crear_recepcion_unidad_despacho([
+                    'id_distribucion' => $idDistribucion,
                     'id_empleado_autoriza' => $idEmpleadoAutoriza,
                     'id_empresa_transporte' => (int) $data['id_empresa_transporte'],
                     'id_vehiculo' => (int) $data['id_vehiculo'],
@@ -388,23 +392,11 @@ class ProgramacionDespachosService
                 }
 
                 if (! empty($advertencias)) {
-                    $logAdvertencia = [
-                        RES_CambiosLog::crear($idEmpleadoAutoriza, 'Advertencias de registro (no bloqueantes)', [
-                            [
-                                'campo_bd' => 'advertencias',
-                                'campo' => 'Advertencias',
-                                'valor_anterior' => null,
-                                'valor_nuevo' => implode(' | ', $advertencias),
-                            ],
-                        ]),
-                    ];
-
-                    $dist = ProgramacionDespachosData::get_distribucion($idDistribucion);
-                    $logExistente = $dist['log_cambios'] ?? [];
-                    $logActualizado = array_merge($logExistente, $logAdvertencia);
-                    ProgramacionDespachosData::update_distribucion($idDistribucion, [
-                        'log_cambios' => json_encode($logActualizado),
-                    ]);
+                    // Las advertencias no son cambios de campos reales, son solo
+                    // información efímera. Se devuelven en la respuesta de la API
+                    // y se muestran como toasts al usuario, pero no se persisten
+                    // en log_cambios (que está reservado para cambios de estado
+                    // y de campos reales de la tabla distribucion).
                 }
             });
         } catch (\Throwable $e) {
@@ -575,44 +567,31 @@ class ProgramacionDespachosService
 
     /**
      * Obtener el peso actual disponible de un lote o blending (helper privado).
+     *
+     * Lee directamente `peso_actual` (en KG), que ya se mantiene decrementado
+     * por `crear_despacho` al crear cada `despacho_detalle`. Históricamente esta
+     * query restaba además `SUM(dd.peso_tomado)`, lo que provocaba doble
+     * descuento y rechazos inválidos al crear un despacho.
      */
     private static function get_peso_disponible_item(?int $idLote, ?int $idBlending): ?float
     {
         if ($idLote !== null) {
             $row = DB::selectOne(
-                'SELECT lm.peso_actual - COALESCE((
-                    SELECT SUM(dd.peso_tomado)
-                    FROM despacho_detalle dd
-                    INNER JOIN despacho d ON d.id = dd.id_despacho
-                    WHERE dd.id_lote_mineral = lm.id
-                      AND d.es_anulado = 0
-                ), 0) AS peso_disponible
-                FROM lote_mineral lm
-                WHERE lm.id = :id AND lm.esta_validado = 1',
+                'SELECT peso_actual AS peso_disponible
+                 FROM lote_mineral
+                 WHERE id = :id AND esta_validado = 1',
                 ['id' => $idLote]
             );
-            if (! $row || $row->peso_disponible === null) {
-                return null;
-            }
-            return (float) $row->peso_disponible;
+            return $row && $row->peso_disponible !== null ? (float) $row->peso_disponible : null;
         }
         if ($idBlending !== null) {
             $row = DB::selectOne(
-                'SELECT b.peso_actual - COALESCE((
-                    SELECT SUM(dd.peso_tomado)
-                    FROM despacho_detalle dd
-                    INNER JOIN despacho d ON d.id = dd.id_despacho
-                    WHERE dd.id_blending = b.id
-                      AND d.es_anulado = 0
-                ), 0) AS peso_disponible
-                FROM blending b
-                WHERE b.id = :id',
+                'SELECT peso_actual AS peso_disponible
+                 FROM blending
+                 WHERE id = :id',
                 ['id' => $idBlending]
             );
-            if (! $row || $row->peso_disponible === null) {
-                return null;
-            }
-            return (float) $row->peso_disponible;
+            return $row && $row->peso_disponible !== null ? (float) $row->peso_disponible : null;
         }
 
         return null;
@@ -630,29 +609,15 @@ class ProgramacionDespachosService
 
     /**
      * Encontrar la recepcion_unidad relacionada a una distribución creada por este módulo.
-     * (Coincide por los campos clave que se generaron al crear la distribución.)
+     * Lookup directo por columna `recepcion_unidad.id_distribucion` (sin heurística de JOINs).
      */
     private static function get_recepcion_unidad_id_para_distribucion(int $idDistribucion): ?int
     {
-        $sql = '
-        SELECT
-            ru.id
-        FROM distribucion di
-        INNER JOIN recepcion_unidad ru
-            ON ru.id_empresa_transporte = di.id_empresa_transporte
-            AND ru.id_vehiculo = di.id_vehiculo
-            AND ru.es_programacion = 1
-            AND ru.es_recepcion_ficticia = 0
-            AND ru.tipo_ingreso = "Despacho de Mineral"
-            AND ru.id_sucursal <=> di.id_sucursal
-            AND ru.fecha_estimada_llegada <=> di.fecha_estimada_llegada
-            AND ru.created_at BETWEEN DATE_SUB(di.created_at, INTERVAL 2 SECOND) AND DATE_ADD(di.created_at, INTERVAL 2 SECOND)
-        WHERE di.id = :id
-        LIMIT 1
-        ';
-        $row = DB::selectOne($sql, ['id' => $idDistribucion]);
+        $row = DB::table('recepcion_unidad')
+            ->where('id_distribucion', $idDistribucion)
+            ->value('id');
 
-        return $row ? (int) $row->id : null;
+        return $row !== null ? (int) $row : null;
     }
 
     /**

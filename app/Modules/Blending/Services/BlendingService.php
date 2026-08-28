@@ -5,6 +5,7 @@ namespace App\Modules\Blending\Services;
 use App\Models\Blending;
 use App\Models\BlendingDetalle;
 use App\Models\LoteGuia;
+use App\Models\LoteMineral;
 use App\Modules\Blending\Data\BlendingData;
 use App\Shared\Enums\_Generic\Periodo;
 use App\Shared\Helpers\ArchivoHelper;
@@ -99,12 +100,20 @@ class BlendingService
                 $leyHumedad = 0.0;
 
                 if ($idLoteGuia !== null) {
-                    $loteGuia = LoteGuia::with('loteMineral')->where('id', $idLoteGuia)->lockForUpdate()->first();
+                    $loteGuia = LoteGuia::with('loteMineral', 'particionLoteMineral')->where('id', $idLoteGuia)->lockForUpdate()->first();
                     if (! $loteGuia) {
                         throw new Exception("El lote con ID {$idLoteGuia} no fue encontrado.");
                     }
 
+                    // Si la guía apunta a un lote directo, lo usamos; si no,
+                    // resolvemos vía la partición apuntada.
                     $loteMineral = $loteGuia->loteMineral;
+                    if (! $loteMineral && $loteGuia->id_particion_lote_mineral) {
+                        $loteMineral = LoteMineral::where(
+                            'id',
+                            $loteGuia->particionLoteMineral->id_lote_mineral ?? 0
+                        )->first();
+                    }
                     if (! $loteMineral) {
                         throw new Exception("El lote de mineral asociado a la guía {$idLoteGuia} no fue encontrado.");
                     }

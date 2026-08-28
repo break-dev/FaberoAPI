@@ -4,11 +4,14 @@ namespace App\Modules\RecepcionVisitas\Services;
 
 use App\Models\RecepcionVisita;
 use App\Models\Visitante;
+use App\Modules\ProgramacionDespachos\Data\ProgramacionDespachosData;
+use App\Modules\ProgramacionDespachos\Services\ProgramacionDespachosService;
 use App\Modules\RecepcionVisitas\Data\RecepcionVisitasData;
 use App\Shared\Enums\_Generic\EstadoVisita;
 use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\ApiResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class RecepcionVisitasService
 {
@@ -388,6 +391,17 @@ class RecepcionVisitasService
                         'url_foto_documento' => $urlFotoDoc,
                         'estado' => EstadoVisita::EnPlanta->value,
                     ]);
+                }
+
+                $distribucionId = ProgramacionDespachosData::get_distribucion_id_for_recepcion_unidad($idRecepcionUnidad);
+                if ($distribucionId !== null) {
+                    $result = ProgramacionDespachosService::confirmar_distribucion($distribucionId, $idEmpleadoRegistro);
+                    if (! ($result['success'] ?? false)) {
+                        Log::warning('Auto-confirmar distribución {id} desde visita falló: {msg}', [
+                            'id' => $distribucionId,
+                            'msg' => $result['message'] ?? 'unknown',
+                        ]);
+                    }
                 }
 
                 $nueva = RecepcionVisitasData::get_recepcion_by_id($idRecepcionVisita);

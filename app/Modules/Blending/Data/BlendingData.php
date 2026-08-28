@@ -89,21 +89,24 @@ class BlendingData
                         AND plm.esta_validado = 1
                   )
               )
-            GROUP BY lm.id, lm.correlativo, lm.id_empresa, emp.razon_social,
-                     p.id, p.razon_social, lm.peso_actual, lm.peso_neto,
-                     lm.ley_humedad, lm.ley_oro, lm.ley_plata
         ';
 
         $params = [];
         if ($idProveedor !== null) {
-            $sql .= ' AND lm.id_proveedor_minero = :id_proveedor';
-            $params['id_proveedor'] = $idProveedor;
+            $sql .= ' AND lm.id_proveedor_minero = ?';
+            $params[] = $idProveedor;
         }
 
         if ($idEmpresa !== null) {
-            $sql .= ' AND lm.id_empresa = :id_empresa';
-            $params['id_empresa'] = $idEmpresa;
+            $sql .= ' AND lm.id_empresa = ?';
+            $params[] = $idEmpresa;
         }
+
+        $sql .= '
+            GROUP BY lm.id, lm.correlativo, lm.id_empresa, emp.razon_social,
+                     p.id, p.razon_social, lm.peso_actual, lm.peso_neto,
+                     lm.ley_humedad, lm.ley_oro, lm.ley_plata
+        ';
 
         $items = DB::select($sql, $params);
 

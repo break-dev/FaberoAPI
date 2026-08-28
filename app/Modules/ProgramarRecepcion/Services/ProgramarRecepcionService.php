@@ -3,8 +3,11 @@
 namespace App\Modules\ProgramarRecepcion\Services;
 
 use App\Modules\ProgramarRecepcion\Data\ProgramarRecepcionData;
+use App\Modules\ProgramacionDespachos\Data\ProgramacionDespachosData;
+use App\Modules\ProgramacionDespachos\Services\ProgramacionDespachosService;
 use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Shared\Responses\ApiResponse;
+use Illuminate\Support\Facades\Log;
 
 class ProgramarRecepcionService
 {
@@ -61,6 +64,8 @@ class ProgramarRecepcionService
 
     /**
      * Confirmar una programación. Marca la fila como 'En Planta' y registra id_empleado_recepcion.
+     * Si la recepción_unidad está vinculada a una distribución, dispara automáticamente la
+     * transición En Espera → En Planta en la distribución (con su log_cambios).
      */
     public static function confirmar_programacion(int $id, int $idEmpleadoRecepcion, array $overrides = []): array
     {
@@ -68,6 +73,19 @@ class ProgramarRecepcionService
         if (! $ok) {
             return ApiResponse::error('No se pudo confirmar la programación (ya estaba confirmada o no existe).', 400);
         }
+
+        $distribucionId = ProgramacionDespachosData::get_distribucion_id_for_recepcion_unidad($id);
+        if ($distribucionId !== null) {
+            $result = ProgramacionDespachosService::confirmar_distribucion($distribucionId, $idEmpleadoRecepcion);
+            if (! ($result['success'] ?? false)) {
+                Log::warning('Auto-confirmar distribución {id} desde ProgramarRecepcion {ru} falló: {msg}', [
+                    'id' => $distribucionId,
+                    'ru' => $id,
+                    'msg' => $result['message'] ?? 'unknown',
+                ]);
+            }
+        }
+
         $actualizada = RecepcionUnidadesData::get_recepcion_by_id($id);
 
         return ApiResponse::success($actualizada, 'Programación confirmada correctamente');

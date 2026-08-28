@@ -325,6 +325,17 @@ class AuxController extends Controller
     }
 
     /**
+     * Listar visitantes con búsqueda opcional.
+     */
+    public function listar_visitantes(Request $request): JsonResponse
+    {
+        $search = $request->query('search');
+        $search = is_string($search) && $search !== '' ? $search : null;
+
+        return response()->json(VisitanteService::listar_visitantes($search));
+    }
+
+    /**
      * Crear un nuevo visitante
      */
     public function crear_visitante(Request $request): JsonResponse

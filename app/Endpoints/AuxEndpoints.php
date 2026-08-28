@@ -52,6 +52,7 @@ Route::middleware('auth.jwt.custom')->group(function () {
 
         // visitantes
         Route::get('/visitantes/buscar', [AuxController::class, 'buscar_visitante_por_dni']);
+        Route::get('/visitantes', [AuxController::class, 'listar_visitantes']);
         Route::post('/visitantes', [AuxController::class, 'crear_visitante']);
 
         // sucursales

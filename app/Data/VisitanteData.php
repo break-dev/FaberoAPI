@@ -58,4 +58,43 @@ class VisitanteData
 
         return $res ? (array) $res : null;
     }
+
+    /**
+     * Listar visitantes con búsqueda opcional.
+     * Devuelve los más recientes primero, limitado a $limit resultados.
+     *
+     * @return array<int, object>
+     */
+    public static function listar_visitantes(?string $search = null, int $limit = 50): array
+    {
+        $sql = '
+        SELECT
+            v.id AS id_visitante,
+            v.nombre,
+            v.apellido,
+            v.dni,
+            v.telefono
+        FROM
+            visitante v
+        WHERE 1=1
+        ';
+
+        $params = [];
+
+        if ($search !== null && trim($search) !== '') {
+            $like = '%' . trim($search) . '%';
+            $sql .= ' AND (
+                v.nombre LIKE ?
+                OR v.apellido LIKE ?
+                OR v.dni LIKE ?
+            )';
+            $params = [$like, $like, $like];
+        }
+
+        $sql .= '
+        ORDER BY v.nombre ASC, v.apellido ASC
+        LIMIT ' . (int) $limit;
+
+        return DB::select($sql, $params);
+    }
 }

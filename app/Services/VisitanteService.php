@@ -30,4 +30,16 @@ class VisitanteService
 
         return ApiResponse::success($nuevo, 'Visitante registrado correctamente');
     }
+
+    /**
+     * Listar visitantes con búsqueda opcional.
+     *
+     * @return array<string, mixed>
+     */
+    public static function listar_visitantes(?string $search = null): array
+    {
+        $visitantes = VisitanteData::listar_visitantes($search);
+
+        return ApiResponse::success($visitantes, 'Visitantes consultados correctamente');
+    }
 }

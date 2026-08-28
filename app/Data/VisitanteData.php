@@ -32,8 +32,8 @@ class VisitanteData
     {
         return Visitante::insertGetId([
             'nombre' => $data['nombre'],
-            'apellido' => $data['apellido'],
-            'dni' => $data['dni'],
+            'apellido' => $data['apellido'] ?? null,
+            'dni' => $data['dni'] ?? null,
             'telefono' => $data['telefono'] ?? null,
         ]);
     }

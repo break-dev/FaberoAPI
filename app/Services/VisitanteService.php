@@ -19,10 +19,12 @@ class VisitanteService
 
     public static function crear_visitante(array $data): array
     {
-        // Verificar si ya existe por DNI
-        $existente = VisitanteData::buscar_por_dni($data['dni']);
-        if ($existente) {
-            return ApiResponse::error('Ya existe un visitante con el mismo DNI.');
+        // Verificar si ya existe por DNI si se proporciona
+        if (! empty($data['dni'])) {
+            $existente = VisitanteData::buscar_por_dni($data['dni']);
+            if ($existente) {
+                return ApiResponse::error('Ya existe un visitante con el mismo DNI.');
+            }
         }
 
         $id = VisitanteData::crear_visitante($data);

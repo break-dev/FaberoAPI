@@ -342,8 +342,8 @@ class AuxController extends Controller
     {
         $request->validate([
             'nombre' => 'required|string|max:100',
-            'apellido' => 'required|string|max:100',
-            'dni' => 'required|string|max:8',
+            'apellido' => 'nullable|string|max:100',
+            'dni' => 'nullable|string|max:8',
             'telefono' => 'nullable|string|max:50',
         ]);
 

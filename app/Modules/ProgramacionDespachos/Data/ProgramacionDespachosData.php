@@ -193,7 +193,6 @@ class ProgramacionDespachosData
         LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN conductor c ON c.id = ru.id_conductor
         WHERE di.id_despacho = :id
-          AND COALESCE(ru.estado_pesaje, "") <> "Pesado"
         ORDER BY di.created_at DESC
         ';
 
@@ -732,7 +731,7 @@ class ProgramacionDespachosData
         }
 
         $params[] = $idDetalle;
-        $sql = 'UPDATE distribucion_detalle SET ' . implode(', ', $sets) . ' WHERE id = ?';
+        $sql = 'UPDATE distribucion_detalle SET '.implode(', ', $sets).' WHERE id = ?';
 
         $affected = DB::update($sql, $params);
 

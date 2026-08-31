@@ -109,6 +109,7 @@ class ProgramarRecepcionService
     public static function actualizar_observacion_evidencias(
         int $id,
         ?string $observacion,
+        ?string $observacionSalida,
         array $evidenciasExistentes,
         array $archivosNuevos,
         int $idEmpleado,
@@ -122,6 +123,7 @@ class ProgramarRecepcionService
         $cambios = ProgramarRecepcionData::actualizar_observacion_evidencias(
             $id,
             $observacion,
+            $observacionSalida,
             $evidenciasExistentes,
             $archivosNuevos,
             $idEmpleado,

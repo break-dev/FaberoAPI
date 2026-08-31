@@ -174,6 +174,7 @@ class ProgramarRecepcionController extends Controller
 
         $request->validate([
             'observacion' => 'nullable|string',
+            'observacion_salida' => 'nullable|string',
             'evidencias_existentes' => 'nullable|string',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
@@ -200,6 +201,7 @@ class ProgramarRecepcionController extends Controller
         return response()->json(ProgramarRecepcionService::actualizar_observacion_evidencias(
             $id,
             $request->input('observacion'),
+            $request->input('observacion_salida'),
             $evidenciasExistentes,
             $archivosNuevos,
             (int) $authUser->id_empleado,

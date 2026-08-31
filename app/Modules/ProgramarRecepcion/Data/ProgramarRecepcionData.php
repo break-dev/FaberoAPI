@@ -295,12 +295,13 @@ class ProgramarRecepcionData
     public static function actualizar_observacion_evidencias(
         int $id,
         ?string $observacion,
+        ?string $observacionSalida,
         array $evidenciasExistentes,
         array $archivosNuevos,
         int $idEmpleado,
         ?string $motivo = null,
     ): int {
-        return DB::transaction(function () use ($id, $observacion, $evidenciasExistentes, $archivosNuevos, $idEmpleado, $motivo) {
+        return DB::transaction(function () use ($id, $observacion, $observacionSalida, $evidenciasExistentes, $archivosNuevos, $idEmpleado, $motivo) {
             $recepcion = RecepcionUnidadesData::get_recepcion_by_id($id);
             if (! $recepcion) {
                 return 0;
@@ -315,6 +316,16 @@ class ProgramarRecepcionData
                     'campo' => 'Observación',
                     'valor_anterior' => $observacionAnterior !== null && $observacionAnterior !== '' ? $observacionAnterior : '— (vacío)',
                     'valor_nuevo' => $observacion !== null && $observacion !== '' ? $observacion : '— (vacío)',
+                ];
+            }
+
+            $observacionSalidaAnterior = $recepcion['observacion_salida'] ?? null;
+            if (($observacionSalida ?? '') !== ($observacionSalidaAnterior ?? '')) {
+                $cambios[] = [
+                    'campo_bd' => 'observacion_salida',
+                    'campo' => 'Observación Salida',
+                    'valor_anterior' => $observacionSalidaAnterior !== null && $observacionSalidaAnterior !== '' ? $observacionSalidaAnterior : '— (vacío)',
+                    'valor_nuevo' => $observacionSalida !== null && $observacionSalida !== '' ? $observacionSalida : '— (vacío)',
                 ];
             }
 
@@ -354,6 +365,9 @@ class ProgramarRecepcionData
             $update = [];
             if (array_key_exists('observacion', array_column($cambios, 'campo_bd') ? array_flip(array_column($cambios, 'campo_bd')) : [])) {
                 $update['observacion'] = $observacion;
+            }
+            if (in_array('observacion_salida', array_column($cambios, 'campo_bd'), true)) {
+                $update['observacion_salida'] = $observacionSalida;
             }
             $cambioEvidencias = false;
             foreach ($cambios as $c) {

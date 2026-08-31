@@ -25,6 +25,7 @@ class RecepcionUnidad extends Model
         'fecha_hora_ingreso',
         'evidencias',
         'observacion',
+        'log_cambios',
         'estado',
         'estado_salida',
         'fecha_hora_salida',
@@ -44,6 +45,7 @@ class RecepcionUnidad extends Model
 
     protected $casts = [
         'evidencias' => 'array',
+        'log_cambios' => 'array',
         'es_recepcion_ficticia' => 'boolean',
     ];
 }

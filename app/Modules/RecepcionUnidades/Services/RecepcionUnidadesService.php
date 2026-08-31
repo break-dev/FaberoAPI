@@ -95,6 +95,7 @@ class RecepcionUnidadesService
 
         $nowStr = now()->toDateTimeString();
 
+        $uploaded = [];
         $uploadedUrls = [];
         if (! empty($evidencias)) {
             $uploaded = ArchivoHelper::guardarArchivos('evidencias/salida', $evidencias);
@@ -103,13 +104,27 @@ class RecepcionUnidadesService
             }
         }
 
-        if (! empty($uploadedUrls)) {
+        if (! empty($uploaded)) {
             $rawEv = $recepcion->evidencias;
             $existingEv = is_array($rawEv)
                 ? $rawEv
                 : (is_string($rawEv) ? (json_decode($rawEv, true) ?? []) : []);
-            $mergedEv = array_values(array_unique(array_merge($existingEv, $uploadedUrls)));
-            $recepcion->evidencias = $mergedEv;
+
+            $normalizedExisting = array_map(function ($item) {
+                if (is_string($item)) {
+                    $nombre = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
+                    $ext = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION);
+                    return [
+                        'url' => $item,
+                        'path_relativo' => str_replace(asset('storage/').'/', '', $item),
+                        'nombre_original' => $nombre ?: 'archivo',
+                        'extension' => $ext ?: 'bin',
+                    ];
+                }
+                return $item;
+            }, $existingEv);
+
+            $recepcion->evidencias = array_merge($normalizedExisting, $uploaded);
         }
 
         $recepcion->estado_salida = $estadoSalida;

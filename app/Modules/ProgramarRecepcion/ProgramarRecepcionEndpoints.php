@@ -10,5 +10,6 @@ Route::middleware('auth.jwt.custom')->group(function () {
         Route::post('/', 'crear_programacion');
         Route::put('/{id}', 'actualizar_programacion');
         Route::post('/{id}/confirmar', 'confirmar_programacion');
+        Route::put('/{id}/observacion-evidencias', 'actualizar_observacion_evidencias');
     });
 });

@@ -2,9 +2,9 @@
 
 namespace App\Modules\ProgramarRecepcion\Services;
 
-use App\Modules\ProgramarRecepcion\Data\ProgramarRecepcionData;
 use App\Modules\ProgramacionDespachos\Data\ProgramacionDespachosData;
 use App\Modules\ProgramacionDespachos\Services\ProgramacionDespachosService;
+use App\Modules\ProgramarRecepcion\Data\ProgramarRecepcionData;
 use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Shared\Responses\ApiResponse;
 use Illuminate\Support\Facades\Log;
@@ -16,10 +16,7 @@ class ProgramarRecepcionService
      */
     public static function get_programaciones(array $filtros): array
     {
-        $data = ProgramarRecepcionData::get_programaciones(
-            $filtros['solo_pendientes'] ?? true,
-            $filtros,
-        );
+        $data = ProgramarRecepcionData::get_programaciones($filtros);
 
         return ApiResponse::success($data, 'Programaciones obtenidas correctamente');
     }
@@ -66,10 +63,24 @@ class ProgramarRecepcionService
      * Confirmar una programación. Marca la fila como 'En Planta' y registra id_empleado_recepcion.
      * Si la recepción_unidad está vinculada a una distribución, dispara automáticamente la
      * transición En Espera → En Planta en la distribución (con su log_cambios).
+     *
+     * Acepta opcionalmente `observacion` y `archivosEvidencias` que se persisten en
+     * `recepcion_unidad` con su entrada en `log_cambios`.
      */
-    public static function confirmar_programacion(int $id, int $idEmpleadoRecepcion, array $overrides = []): array
-    {
-        $ok = ProgramarRecepcionData::confirmar_programacion($id, $idEmpleadoRecepcion, $overrides);
+    public static function confirmar_programacion(
+        int $id,
+        int $idEmpleadoRecepcion,
+        array $overrides = [],
+        ?string $observacion = null,
+        array $archivosEvidencias = [],
+    ): array {
+        $ok = ProgramarRecepcionData::confirmar_programacion(
+            $id,
+            $idEmpleadoRecepcion,
+            $overrides,
+            $observacion,
+            $archivosEvidencias,
+        );
         if (! $ok) {
             return ApiResponse::error('No se pudo confirmar la programación (ya estaba confirmada o no existe).', 400);
         }
@@ -89,5 +100,40 @@ class ProgramarRecepcionService
         $actualizada = RecepcionUnidadesData::get_recepcion_by_id($id);
 
         return ApiResponse::success($actualizada, 'Programación confirmada correctamente');
+    }
+
+    /**
+     * Editar la observación y/o evidencias de una recepción ya confirmada.
+     * Devuelve la recepción actualizada o un error si no existe.
+     */
+    public static function actualizar_observacion_evidencias(
+        int $id,
+        ?string $observacion,
+        array $evidenciasExistentes,
+        array $archivosNuevos,
+        int $idEmpleado,
+        ?string $motivo = null,
+    ): array {
+        $existe = RecepcionUnidadesData::get_recepcion_by_id($id);
+        if (! $existe) {
+            return ApiResponse::error('No se encontró la recepción a editar.', 404);
+        }
+
+        $cambios = ProgramarRecepcionData::actualizar_observacion_evidencias(
+            $id,
+            $observacion,
+            $evidenciasExistentes,
+            $archivosNuevos,
+            $idEmpleado,
+            $motivo,
+        );
+
+        $actualizada = RecepcionUnidadesData::get_recepcion_by_id($id);
+
+        $msg = $cambios > 0
+            ? "Recepción actualizada ({$cambios} cambio(s) registrado(s))."
+            : 'Sin cambios para guardar.';
+
+        return ApiResponse::success($actualizada, $msg);
     }
 }

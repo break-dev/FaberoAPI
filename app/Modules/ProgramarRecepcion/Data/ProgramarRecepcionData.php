@@ -5,6 +5,8 @@ namespace App\Modules\ProgramarRecepcion\Data;
 use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Shared\Enums\_Generic\EstadoPesaje;
 use App\Shared\Enums\_Generic\EstadoVisita;
+use App\Shared\Helpers\ArchivoHelper;
+use App\Shared\Responses\_Generic\RES_CambiosLog;
 use Illuminate\Support\Facades\DB;
 
 class ProgramarRecepcionData
@@ -13,7 +15,7 @@ class ProgramarRecepcionData
      * Obtener programaciones (recepciones con es_programacion = 1).
      * Opcionalmente filtrar por estado de confirmación: las no confirmadas (id_empleado_recepcion IS NULL).
      */
-    public static function get_programaciones(bool $soloPendientes = false, array $filtros = []): array
+    public static function get_programaciones(array $filtros = []): array
     {
         $sql = '
         SELECT
@@ -53,19 +55,23 @@ class ProgramarRecepcionData
 
         $params = [];
 
-        if ($soloPendientes) {
-            $sql .= ' AND ru.id_empleado_recepcion IS NULL';
+        $estado = $filtros['estado_confirmacion'] ?? null;
+        if ($estado === 'pendientes' || ($estado === null && ($filtros['solo_pendientes'] ?? false) === true)) {
+            $sql .= ' AND ru.fecha_hora_ingreso IS NULL';
+        } elseif ($estado === 'confirmadas') {
+            $sql .= ' AND ru.fecha_hora_ingreso IS NOT NULL';
         }
+
         if (! empty($filtros['fecha_inicio'])) {
-            $sql .= ' AND DATE(ru.created_at) >= :fecha_inicio';
+            $sql .= ' AND DATE(COALESCE(ru.fecha_hora_ingreso, ru.fecha_estimada_llegada, ru.created_at)) >= :fecha_inicio';
             $params['fecha_inicio'] = $filtros['fecha_inicio'];
         }
         if (! empty($filtros['fecha_fin'])) {
-            $sql .= ' AND DATE(ru.created_at) <= :fecha_fin';
+            $sql .= ' AND DATE(COALESCE(ru.fecha_hora_ingreso, ru.fecha_estimada_llegada, ru.created_at)) <= :fecha_fin';
             $params['fecha_fin'] = $filtros['fecha_fin'];
         }
 
-        $sql .= ' ORDER BY ru.created_at DESC';
+        $sql .= ' ORDER BY COALESCE(ru.fecha_hora_ingreso, ru.fecha_estimada_llegada, ru.created_at) DESC';
 
         return DB::select($sql, $params);
     }
@@ -184,20 +190,193 @@ class ProgramarRecepcionData
 
     /**
      * Confirmar una programación.
+     *
+     * Acepta opcionalmente `observacion` y archivos de `evidencias` que se persisten en
+     * `recepcion_unidad` con su entrada en `log_cambios` (motivo: "Confirmación inicial").
      */
-    public static function confirmar_programacion(int $id, int $idEmpleadoRecepcion, array $overrides = []): bool
-    {
-        $update = array_merge([
-            'id_empleado_recepcion' => $idEmpleadoRecepcion,
-            'fecha_hora_ingreso' => now()->toDateTimeString(),
-            'estado' => EstadoVisita::EnPlanta->value,
-            'estado_pesaje' => EstadoPesaje::SinPesar->value,
-        ], $overrides);
+    public static function confirmar_programacion(
+        int $id,
+        int $idEmpleadoRecepcion,
+        array $overrides = [],
+        ?string $observacion = null,
+        array $archivosEvidencias = [],
+    ): bool {
+        $recepcion = RecepcionUnidadesData::get_recepcion_by_id($id);
+        if (! $recepcion) {
+            return false;
+        }
 
-        return DB::table('recepcion_unidad')
-            ->where('id', $id)
-            ->where('es_programacion', 1)
-            ->whereNull('id_empleado_recepcion')
-            ->update($update) > 0;
+        return DB::transaction(function () use ($recepcion, $id, $idEmpleadoRecepcion, $overrides, $observacion, $archivosEvidencias) {
+            $update = array_merge([
+                'id_empleado_recepcion' => $idEmpleadoRecepcion,
+                'fecha_hora_ingreso' => now()->toDateTimeString(),
+                'estado' => EstadoVisita::EnPlanta->value,
+                'estado_pesaje' => EstadoPesaje::SinPesar->value,
+            ], $overrides);
+
+            $ok = DB::table('recepcion_unidad')
+                ->where('id', $id)
+                ->where('es_programacion', 1)
+                ->whereNull('id_empleado_recepcion')
+                ->update($update) > 0;
+
+            if (! $ok) {
+                return false;
+            }
+
+            // Aplicar observación/evidencias (con log_cambios) si corresponde.
+            $cambios = [];
+            $motivo = 'Confirmación inicial';
+
+            $observacionAnterior = $recepcion['observacion'] ?? null;
+            if (($observacion ?? '') !== ($observacionAnterior ?? '')) {
+                $cambios[] = [
+                    'campo_bd' => 'observacion',
+                    'campo' => 'Observación',
+                    'valor_anterior' => $observacionAnterior !== null && $observacionAnterior !== '' ? $observacionAnterior : '— (vacío)',
+                    'valor_nuevo' => $observacion !== null && $observacion !== '' ? $observacion : '— (vacío)',
+                ];
+                $update['observacion'] = $observacion;
+            }
+
+            $evidenciasAnteriores = $recepcion['evidencias'] ?? [];
+            if (! is_array($evidenciasAnteriores)) {
+                $evidenciasAnteriores = [];
+            }
+            $evidenciasActuales = $evidenciasAnteriores;
+            if (! empty($archivosEvidencias)) {
+                $nuevas = ArchivoHelper::guardarArchivos('recepcion-unidad', $archivosEvidencias);
+                $evidenciasActuales = array_merge($evidenciasActuales, $nuevas);
+            }
+            $nombresAnt = array_values(array_filter(array_map(
+                fn ($e) => is_array($e) ? ($e['nombre_original'] ?? null) : null,
+                $evidenciasAnteriores,
+            )));
+            $nombresNue = array_values(array_filter(array_map(
+                fn ($e) => is_array($e) ? ($e['nombre_original'] ?? null) : null,
+                $evidenciasActuales,
+            )));
+            sort($nombresAnt);
+            sort($nombresNue);
+            if ($nombresAnt !== $nombresNue) {
+                $cambios[] = [
+                    'campo_bd' => 'evidencias',
+                    'campo' => 'Evidencias',
+                    'valor_anterior' => ! empty($nombresAnt) ? implode(', ', $nombresAnt) : '— (sin evidencias)',
+                    'valor_nuevo' => ! empty($nombresNue) ? implode(', ', $nombresNue) : '— (sin evidencias)',
+                ];
+                $update['evidencias'] = json_encode($evidenciasActuales);
+            }
+
+            if (! empty($cambios)) {
+                $logActual = $recepcion['log_cambios'] ?? [];
+                if (! is_array($logActual)) {
+                    $logActual = json_decode($logActual, true) ?? [];
+                }
+                $nuevoLog = RES_CambiosLog::crear($idEmpleadoRecepcion, $motivo, $cambios);
+                array_unshift($logActual, $nuevoLog);
+                $update['log_cambios'] = json_encode($logActual);
+            }
+
+            if (count($update) > 4) {
+                DB::table('recepcion_unidad')->where('id', $id)->update($update);
+            }
+
+            return true;
+        });
+    }
+
+    /**
+     * Actualizar la observación y/o evidencias de una recepción ya confirmada.
+     *
+     * Compara antes/después, registra entrada en `log_cambios` con el motivo provisto
+     * y devuelve la cantidad de entradas agregadas al log (0 si nada cambió).
+     */
+    public static function actualizar_observacion_evidencias(
+        int $id,
+        ?string $observacion,
+        array $evidenciasExistentes,
+        array $archivosNuevos,
+        int $idEmpleado,
+        ?string $motivo = null,
+    ): int {
+        return DB::transaction(function () use ($id, $observacion, $evidenciasExistentes, $archivosNuevos, $idEmpleado, $motivo) {
+            $recepcion = RecepcionUnidadesData::get_recepcion_by_id($id);
+            if (! $recepcion) {
+                return 0;
+            }
+
+            $cambios = [];
+
+            $observacionAnterior = $recepcion['observacion'] ?? null;
+            if (($observacion ?? '') !== ($observacionAnterior ?? '')) {
+                $cambios[] = [
+                    'campo_bd' => 'observacion',
+                    'campo' => 'Observación',
+                    'valor_anterior' => $observacionAnterior !== null && $observacionAnterior !== '' ? $observacionAnterior : '— (vacío)',
+                    'valor_nuevo' => $observacion !== null && $observacion !== '' ? $observacion : '— (vacío)',
+                ];
+            }
+
+            $evidenciasActuales = $evidenciasExistentes;
+            if (! empty($archivosNuevos)) {
+                $subidos = ArchivoHelper::guardarArchivos('recepcion-unidad', $archivosNuevos);
+                $evidenciasActuales = array_merge($evidenciasActuales, $subidos);
+            }
+
+            $evidenciasAnteriores = $recepcion['evidencias'] ?? [];
+            if (! is_array($evidenciasAnteriores)) {
+                $evidenciasAnteriores = [];
+            }
+            $nombresAnt = array_values(array_filter(array_map(
+                fn ($e) => is_array($e) ? ($e['nombre_original'] ?? null) : null,
+                $evidenciasAnteriores,
+            )));
+            $nombresNue = array_values(array_filter(array_map(
+                fn ($e) => is_array($e) ? ($e['nombre_original'] ?? null) : null,
+                $evidenciasActuales,
+            )));
+            sort($nombresAnt);
+            sort($nombresNue);
+            if ($nombresAnt !== $nombresNue) {
+                $cambios[] = [
+                    'campo_bd' => 'evidencias',
+                    'campo' => 'Evidencias',
+                    'valor_anterior' => ! empty($nombresAnt) ? implode(', ', $nombresAnt) : '— (sin evidencias)',
+                    'valor_nuevo' => ! empty($nombresNue) ? implode(', ', $nombresNue) : '— (sin evidencias)',
+                ];
+            }
+
+            if (empty($cambios)) {
+                return 0;
+            }
+
+            $update = [];
+            if (array_key_exists('observacion', array_column($cambios, 'campo_bd') ? array_flip(array_column($cambios, 'campo_bd')) : [])) {
+                $update['observacion'] = $observacion;
+            }
+            $cambioEvidencias = false;
+            foreach ($cambios as $c) {
+                if (($c['campo_bd'] ?? null) === 'evidencias') {
+                    $cambioEvidencias = true;
+                    break;
+                }
+            }
+            if ($cambioEvidencias) {
+                $update['evidencias'] = json_encode($evidenciasActuales);
+            }
+
+            $logActual = $recepcion['log_cambios'] ?? [];
+            if (! is_array($logActual)) {
+                $logActual = json_decode($logActual, true) ?? [];
+            }
+            $nuevoLog = RES_CambiosLog::crear($idEmpleado, $motivo, $cambios);
+            array_unshift($logActual, $nuevoLog);
+            $update['log_cambios'] = json_encode($logActual);
+
+            DB::table('recepcion_unidad')->where('id', $id)->update($update);
+
+            return count($cambios);
+        });
     }
 }

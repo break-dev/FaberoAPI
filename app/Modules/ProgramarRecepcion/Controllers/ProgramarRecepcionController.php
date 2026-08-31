@@ -16,10 +16,17 @@ class ProgramarRecepcionController extends Controller
      */
     public function get_programaciones(Request $request): JsonResponse
     {
+        $estadoConfirmacion = $request->query('estado_confirmacion');
+        $soloPendientes = null;
+        if ($request->has('solo_pendientes')) {
+            $soloPendientes = filter_var($request->query('solo_pendientes'), FILTER_VALIDATE_BOOLEAN);
+        }
+
         $filtros = [
-            'solo_pendientes' => filter_var($request->query('solo_pendientes', 'true'), FILTER_VALIDATE_BOOLEAN),
-            'fecha_inicio'     => $request->query('fecha_inicio'),
-            'fecha_fin'        => $request->query('fecha_fin'),
+            'estado_confirmacion' => $estadoConfirmacion,
+            'solo_pendientes' => $soloPendientes,
+            'fecha_inicio' => $request->query('fecha_inicio'),
+            'fecha_fin' => $request->query('fecha_fin'),
         ];
 
         return response()->json(ProgramarRecepcionService::get_programaciones($filtros));
@@ -94,6 +101,8 @@ class ProgramarRecepcionController extends Controller
 
     /**
      * Confirmar una programación (la marca como 'En Planta' y registra id_empleado_recepcion).
+     * Acepta opcionalmente `observacion` y archivos `evidencias[]` (multipart) para
+     * persistir también en `recepcion_unidad` con su entrada en `log_cambios`.
      */
     public function confirmar_programacion(Request $request, int $id): JsonResponse
     {
@@ -101,6 +110,12 @@ class ProgramarRecepcionController extends Controller
         if (! $authUser || empty($authUser->id_empleado)) {
             return response()->json(ApiResponse::error('No se pudo determinar el empleado logueado para confirmar la programación.'), 401);
         }
+
+        $request->validate([
+            'observacion' => 'nullable|string',
+            'evidencias' => 'nullable|array',
+            'evidencias.*' => 'file',
+        ]);
 
         $overrides = [];
         if ($request->input('id_vehiculo')) {
@@ -128,6 +143,67 @@ class ProgramarRecepcionController extends Controller
             $overrides['guia_transportista'] = $request->input('guia_transportista');
         }
 
-        return response()->json(ProgramarRecepcionService::confirmar_programacion($id, (int) $authUser->id_empleado, $overrides));
+        $observacion = $request->input('observacion');
+        $archivos = [];
+        if ($request->hasFile('evidencias')) {
+            $archivos = $request->file('evidencias');
+            if (! is_array($archivos)) {
+                $archivos = [$archivos];
+            }
+        }
+
+        return response()->json(ProgramarRecepcionService::confirmar_programacion(
+            $id,
+            (int) $authUser->id_empleado,
+            $overrides,
+            $observacion,
+            $archivos,
+        ));
+    }
+
+    /**
+     * Editar la observación y/o evidencias de una recepción ya confirmada.
+     * Persiste los cambios en `recepcion_unidad` con su entrada en `log_cambios`.
+     */
+    public function actualizar_observacion_evidencias(Request $request, int $id): JsonResponse
+    {
+        $authUser = $request->attributes->get('auth_user');
+        if (! $authUser || empty($authUser->id_empleado)) {
+            return response()->json(ApiResponse::error('No se pudo determinar el empleado logueado para registrar los cambios.'), 401);
+        }
+
+        $request->validate([
+            'observacion' => 'nullable|string',
+            'evidencias_existentes' => 'nullable|string',
+            'evidencias' => 'nullable|array',
+            'evidencias.*' => 'file',
+            'motivo' => 'nullable|string|max:500',
+        ]);
+
+        $evidenciasExistentes = [];
+        if ($request->filled('evidencias_existentes')) {
+            $decoded = json_decode($request->input('evidencias_existentes'), true);
+            if (json_last_error() !== JSON_ERROR_NONE || ! is_array($decoded)) {
+                return response()->json(ApiResponse::error('El campo evidencias_existentes no es un JSON válido.'), 422);
+            }
+            $evidenciasExistentes = $decoded;
+        }
+
+        $archivosNuevos = [];
+        if ($request->hasFile('evidencias')) {
+            $archivosNuevos = $request->file('evidencias');
+            if (! is_array($archivosNuevos)) {
+                $archivosNuevos = [$archivosNuevos];
+            }
+        }
+
+        return response()->json(ProgramarRecepcionService::actualizar_observacion_evidencias(
+            $id,
+            $request->input('observacion'),
+            $evidenciasExistentes,
+            $archivosNuevos,
+            (int) $authUser->id_empleado,
+            $request->input('motivo'),
+        ));
     }
 }

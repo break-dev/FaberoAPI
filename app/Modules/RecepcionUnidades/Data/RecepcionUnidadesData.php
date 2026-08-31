@@ -37,6 +37,7 @@ class RecepcionUnidadesData
             ru.fecha_hora_ingreso,
             ru.evidencias,
             ru.observacion,
+            ru.log_cambios,
             ru.estado,
             ru.estado_salida,
             ru.fecha_hora_salida,
@@ -68,15 +69,16 @@ class RecepcionUnidadesData
 
         $params = [];
 
-        // Filtro por fecha (las recepciones programadas — es_programacion=1 — siempre se listan,
-        // sin importar el rango de fechas; las reales sí se filtran por fecha_hora_ingreso o created_at).
+        // Filtro por fecha:
+        // A las recepciones programadas sin confirmar (es_programacion = 1 AND fecha_hora_ingreso IS NULL) NO les afecta el filtro de fecha.
+        // A las confirmadas (fecha_hora_ingreso IS NOT NULL) y recepciones directas SÍ les afecta el filtro de fecha.
         if (! empty($filters['fecha_inicio'])) {
-            $sql .= ' AND (ru.es_programacion = 1 OR COALESCE(ru.fecha_hora_ingreso, ru.created_at) >= :fecha_inicio)';
+            $sql .= ' AND ((ru.es_programacion = 1 AND ru.fecha_hora_ingreso IS NULL) OR COALESCE(ru.fecha_hora_ingreso, ru.created_at) >= :fecha_inicio)';
             $params['fecha_inicio'] = $filters['fecha_inicio'].' 00:00:00';
         }
 
         if (! empty($filters['fecha_fin'])) {
-            $sql .= ' AND (ru.es_programacion = 1 OR COALESCE(ru.fecha_hora_ingreso, ru.created_at) <= :fecha_fin)';
+            $sql .= ' AND ((ru.es_programacion = 1 AND ru.fecha_hora_ingreso IS NULL) OR COALESCE(ru.fecha_hora_ingreso, ru.created_at) <= :fecha_fin)';
             $params['fecha_fin'] = $filters['fecha_fin'].' 23:59:59';
         }
 
@@ -105,7 +107,10 @@ class RecepcionUnidadesData
         // Decodificar la columna JSON de evidencias manualmente para que coincida con lo esperado por Eloquent
         foreach ($results as $item) {
             if (isset($item->evidencias)) {
-                $item->evidencias = json_decode($item->evidencias, true) ?? [];
+                $item->evidencias = self::normalizar_evidencias($item->evidencias);
+            }
+            if (isset($item->log_cambios)) {
+                $item->log_cambios = isset($item->log_cambios) ? (is_array($item->log_cambios) ? $item->log_cambios : (json_decode($item->log_cambios, true) ?? [])) : [];
             }
         }
 
@@ -137,6 +142,7 @@ class RecepcionUnidadesData
             ru.fecha_hora_ingreso,
             ru.evidencias,
             ru.observacion,
+            ru.log_cambios,
             ru.estado,
             ru.estado_salida,
             ru.fecha_hora_salida,
@@ -174,11 +180,41 @@ class RecepcionUnidadesData
 
         if ($item) {
             if (isset($item->evidencias)) {
-                $item->evidencias = json_decode($item->evidencias, true) ?? [];
+                $item->evidencias = self::normalizar_evidencias($item->evidencias);
+            }
+            if (isset($item->log_cambios)) {
+                $item->log_cambios = isset($item->log_cambios) ? (is_array($item->log_cambios) ? $item->log_cambios : (json_decode($item->log_cambios, true) ?? [])) : [];
             }
         }
 
         return $item ? (array) $item : null;
+    }
+
+    /**
+     * Normalizar evidencias a la estructura IArchivo[] esperada por el frontend.
+     */
+    private static function normalizar_evidencias(mixed $evidencias): array
+    {
+        if (empty($evidencias)) {
+            return [];
+        }
+        $arr = is_string($evidencias) ? (json_decode($evidencias, true) ?? []) : (array) $evidencias;
+        if (! is_array($arr)) {
+            return [];
+        }
+        return array_values(array_map(function ($item) {
+            if (is_string($item)) {
+                $nombre = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
+                $ext = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION);
+                return [
+                    'url' => $item,
+                    'path_relativo' => str_replace(asset('storage/').'/', '', $item),
+                    'nombre_original' => $nombre ?: 'archivo',
+                    'extension' => $ext ?: 'bin',
+                ];
+            }
+            return $item;
+        }, $arr));
     }
 
     /**

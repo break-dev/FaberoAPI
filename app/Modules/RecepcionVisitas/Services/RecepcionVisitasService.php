@@ -277,9 +277,28 @@ class RecepcionVisitasService
                 if (! empty($evidencias)) {
                     $uploadedEvidencias = ArchivoHelper::guardarArchivos('evidencias', $evidencias);
                     if (! empty($uploadedEvidencias)) {
-                        $urlsEvidencias = array_map(fn ($f) => $f['url'], $uploadedEvidencias);
+                        $rawEv = $recepcionUnidad->evidencias ?? null;
+                        $existingEv = is_array($rawEv)
+                            ? $rawEv
+                            : (is_string($rawEv) ? (json_decode($rawEv, true) ?? []) : []);
+
+                        $normalizedExisting = array_map(function ($item) {
+                            if (is_string($item)) {
+                                $nombre = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
+                                $ext = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION);
+                                return [
+                                    'url' => $item,
+                                    'path_relativo' => str_replace(asset('storage/').'/', '', $item),
+                                    'nombre_original' => $nombre ?: 'archivo',
+                                    'extension' => $ext ?: 'bin',
+                                ];
+                            }
+                            return $item;
+                        }, $existingEv);
+
+                        $merged = array_merge($normalizedExisting, $uploadedEvidencias);
                         DB::table('recepcion_unidad')->where('id', $idRecepcionUnidad)->update([
-                            'evidencias' => json_encode($urlsEvidencias),
+                            'evidencias' => json_encode($merged),
                         ]);
                     }
                 }

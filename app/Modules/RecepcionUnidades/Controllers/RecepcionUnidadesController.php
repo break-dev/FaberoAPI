@@ -54,12 +54,23 @@ class RecepcionUnidadesController extends Controller
             'id_sucursal' => 'required|integer|exists:sucursal,id',
             'guia_remitente' => 'nullable|string|max:20',
             'guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente_file' => 'nullable|file',
+            'guia_transportista_file' => 'nullable|file',
+            'documentos_programacion_existentes' => 'nullable|string',
             'id_motivo_ingreso' => 'nullable|integer|exists:motivo_ingreso,id',
         ]);
 
         $authUser = $request->attributes->get('auth_user');
         if (! $authUser || empty($authUser->id_empleado)) {
             return response()->json(ApiResponse::error('No se pudo determinar el empleado logueado para registrar el ingreso.'), 401);
+        }
+
+        $documentosExistentes = null;
+        if ($request->filled('documentos_programacion_existentes')) {
+            $decoded = json_decode($request->input('documentos_programacion_existentes'), true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $documentosExistentes = $decoded;
+            }
         }
 
         $data = [
@@ -75,6 +86,9 @@ class RecepcionUnidadesController extends Controller
             'id_sucursal' => (int) $request->input('id_sucursal'),
             'guia_remitente' => $request->input('guia_remitente'),
             'guia_transportista' => $request->input('guia_transportista'),
+            'guia_remitente_file' => $request->file('guia_remitente_file'),
+            'guia_transportista_file' => $request->file('guia_transportista_file'),
+            'documentos_programacion_existentes' => $documentosExistentes,
         ];
 
         // Obtener archivos subidos

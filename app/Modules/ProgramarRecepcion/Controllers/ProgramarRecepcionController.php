@@ -55,6 +55,9 @@ class ProgramarRecepcionController extends Controller
             'fecha_estimada_llegada' => 'nullable|date',
             'guia_remitente' => 'nullable|string|max:20',
             'guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente_file' => 'nullable|file',
+            'guia_transportista_file' => 'nullable|file',
+            'documentos_programacion_existentes' => 'nullable|string',
             'observacion' => 'nullable|string',
             'tipo_ingreso' => 'nullable|string|max:50',
         ]);
@@ -70,6 +73,15 @@ class ProgramarRecepcionController extends Controller
 
         $data = $request->all();
         $data['id_empleado_autoriza'] = (int) $authUser->id_empleado;
+        $data['guia_remitente_file'] = $request->file('guia_remitente_file');
+        $data['guia_transportista_file'] = $request->file('guia_transportista_file');
+
+        if ($request->filled('documentos_programacion_existentes')) {
+            $decoded = json_decode($request->input('documentos_programacion_existentes'), true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $data['documentos_programacion_existentes'] = $decoded;
+            }
+        }
 
         return response()->json(ProgramarRecepcionService::crear_programacion($data));
     }
@@ -88,6 +100,9 @@ class ProgramarRecepcionController extends Controller
             'fecha_estimada_llegada' => 'nullable|date',
             'guia_remitente' => 'nullable|string|max:20',
             'guia_transportista' => 'nullable|string|max:20',
+            'guia_remitente_file' => 'nullable|file',
+            'guia_transportista_file' => 'nullable|file',
+            'documentos_programacion_existentes' => 'nullable|string',
             'observacion' => 'nullable|string',
             'tipo_ingreso' => 'nullable|string|max:50',
         ]);
@@ -96,7 +111,18 @@ class ProgramarRecepcionController extends Controller
             return response()->json(ApiResponse::error($validator->errors()->first()), 400);
         }
 
-        return response()->json(ProgramarRecepcionService::actualizar_programacion($id, $request->all()));
+        $data = $request->all();
+        $data['guia_remitente_file'] = $request->file('guia_remitente_file');
+        $data['guia_transportista_file'] = $request->file('guia_transportista_file');
+
+        if ($request->filled('documentos_programacion_existentes')) {
+            $decoded = json_decode($request->input('documentos_programacion_existentes'), true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                $data['documentos_programacion_existentes'] = $decoded;
+            }
+        }
+
+        return response()->json(ProgramarRecepcionService::actualizar_programacion($id, $data));
     }
 
     /**

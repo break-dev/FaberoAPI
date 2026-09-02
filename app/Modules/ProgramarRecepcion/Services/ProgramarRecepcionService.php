@@ -6,7 +6,9 @@ use App\Modules\ProgramacionDespachos\Data\ProgramacionDespachosData;
 use App\Modules\ProgramacionDespachos\Services\ProgramacionDespachosService;
 use App\Modules\ProgramarRecepcion\Data\ProgramarRecepcionData;
 use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
+use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\ApiResponse;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 
 class ProgramarRecepcionService
@@ -36,9 +38,32 @@ class ProgramarRecepcionService
 
     /**
      * Crear una programación de recepción de unidad.
+     *
+     * @param  array  $data  Datos básicos de la programación.
+     *                       Claves opcionales para archivos de guías:
+     *                       - guia_remitente_file: UploadedFile|null
+     *                       - guia_transportista_file: UploadedFile|null
+     *                       - documentos_programacion_existentes: array (estado) actual para mezclar
      */
     public static function crear_programacion(array $data): array
     {
+        $data = self::resolver_documentos_programacion(
+            $data,
+            $data['guia_remitente_file'] ?? null,
+            $data['guia_transportista_file'] ?? null,
+            is_array($data['documentos_programacion_existentes'] ?? null) ? $data['documentos_programacion_existentes'] : null,
+        );
+
+        $erroresUnicidad = self::validar_unicidad_guia(
+            $data['id_proveedor_minero'] ?? null,
+            $data['guia_remitente'] ?? null,
+            $data['guia_transportista'] ?? null,
+            null,
+        );
+        if ($erroresUnicidad !== null) {
+            return ApiResponse::error($erroresUnicidad, 409);
+        }
+
         $id = ProgramarRecepcionData::crear_programacion($data);
         $nueva = RecepcionUnidadesData::get_recepcion_by_id($id);
 
@@ -50,6 +75,23 @@ class ProgramarRecepcionService
      */
     public static function actualizar_programacion(int $id, array $data): array
     {
+        $data = self::resolver_documentos_programacion(
+            $data,
+            $data['guia_remitente_file'] ?? null,
+            $data['guia_transportista_file'] ?? null,
+            is_array($data['documentos_programacion_existentes'] ?? null) ? $data['documentos_programacion_existentes'] : null,
+        );
+
+        $erroresUnicidad = self::validar_unicidad_guia(
+            $data['id_proveedor_minero'] ?? null,
+            $data['guia_remitente'] ?? null,
+            $data['guia_transportista'] ?? null,
+            $id,
+        );
+        if ($erroresUnicidad !== null) {
+            return ApiResponse::error($erroresUnicidad, 409);
+        }
+
         $ok = ProgramarRecepcionData::actualizar_programacion($id, $data);
         if (! $ok) {
             return ApiResponse::error('No se pudo actualizar la programación (puede estar confirmada o no existir).', 400);
@@ -57,6 +99,66 @@ class ProgramarRecepcionService
         $actualizada = RecepcionUnidadesData::get_recepcion_by_id($id);
 
         return ApiResponse::success($actualizada, 'Programación actualizada correctamente');
+    }
+
+    /**
+     * Resolver el estado final de documentos_programacion mezclando:
+     *   - archivos existentes (persistidos)
+     *   - archivos nuevos (UploadedFile) recién subidos
+     *
+     * Devuelve $data con `documentos_programacion` listo para persistir y
+     * quita las claves *_file / *_existentes para no contaminar la fila.
+     */
+    private static function resolver_documentos_programacion(
+        array $data,
+        ?UploadedFile $guiaRemitente,
+        ?UploadedFile $guiaTransportista,
+        ?array $existentes,
+    ): array {
+        $existentes = $existentes ?? [];
+        $documentos = [
+            'guia_remitente' => $existentes['guia_remitente'] ?? null,
+            'guia_transportista' => $existentes['guia_transportista'] ?? null,
+        ];
+
+        if ($guiaRemitente instanceof UploadedFile && $guiaRemitente->isValid()) {
+            $subidos = ArchivoHelper::guardarArchivos('documentos-programacion', [$guiaRemitente]);
+            $documentos['guia_remitente'] = $subidos[0] ?? null;
+        }
+        if ($guiaTransportista instanceof UploadedFile && $guiaTransportista->isValid()) {
+            $subidos = ArchivoHelper::guardarArchivos('documentos-programacion', [$guiaTransportista]);
+            $documentos['guia_transportista'] = $subidos[0] ?? null;
+        }
+
+        $data['documentos_programacion'] = ($documentos['guia_remitente'] || $documentos['guia_transportista'])
+            ? $documentos
+            : null;
+
+        unset(
+            $data['guia_remitente_file'],
+            $data['guia_transportista_file'],
+            $data['documentos_programacion_existentes'],
+        );
+
+        return $data;
+    }
+
+    /**
+     * Validar que no exista otra recepción con la misma combinación proveedor+guía.
+     * Devuelve mensaje si hay duplicado, null si OK.
+     */
+    private static function validar_unicidad_guia(
+        ?int $idProveedor,
+        ?string $guiaRemitente,
+        ?string $guiaTransportista,
+        ?int $excluirId,
+    ): ?string {
+        return RecepcionUnidadesData::validar_unicidad_guia_proveedor(
+            $idProveedor,
+            $guiaRemitente,
+            $guiaTransportista,
+            $excluirId,
+        );
     }
 
     /**

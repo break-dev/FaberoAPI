@@ -51,8 +51,9 @@ class RecepcionUnidadesData
             CONCAT(emp_rec.nombre, " ", emp_rec.apellido) AS empleado_recepcion_nombre,
             ru.es_programacion,
             ru.fecha_estimada_llegada,
-            ru.guia_remitente,
+ru.guia_remitente,
             ru.guia_transportista,
+            ru.documentos_programacion,
             ru.es_recepcion_ficticia
         FROM
             recepcion_unidad ru
@@ -111,6 +112,9 @@ class RecepcionUnidadesData
             }
             if (isset($item->log_cambios)) {
                 $item->log_cambios = isset($item->log_cambios) ? (is_array($item->log_cambios) ? $item->log_cambios : (json_decode($item->log_cambios, true) ?? [])) : [];
+            }
+            if (isset($item->documentos_programacion)) {
+                $item->documentos_programacion = self::normalizar_documentos_programacion($item->documentos_programacion);
             }
         }
 
@@ -185,6 +189,9 @@ class RecepcionUnidadesData
             if (isset($item->log_cambios)) {
                 $item->log_cambios = isset($item->log_cambios) ? (is_array($item->log_cambios) ? $item->log_cambios : (json_decode($item->log_cambios, true) ?? [])) : [];
             }
+            if (isset($item->documentos_programacion)) {
+                $item->documentos_programacion = self::normalizar_documentos_programacion($item->documentos_programacion);
+            }
         }
 
         return $item ? (array) $item : null;
@@ -218,6 +225,83 @@ class RecepcionUnidadesData
     }
 
     /**
+     * Normalizar la columna JSON documentos_programacion.
+     * Estructura esperada: { guia_remitente: IArchivo|null, guia_transportista: IArchivo|null }
+     * Cada IArchivo: { url, path_relativo, nombre_original, extension }
+     */
+    public static function normalizar_documentos_programacion(mixed $val): array
+    {
+        if (empty($val)) {
+            return ['guia_remitente' => null, 'guia_transportista' => null];
+        }
+        $arr = is_string($val) ? (json_decode($val, true) ?? []) : (array) $val;
+        if (! is_array($arr)) {
+            return ['guia_remitente' => null, 'guia_transportista' => null];
+        }
+
+        $result = ['guia_remitente' => null, 'guia_transportista' => null];
+        foreach (['guia_remitente', 'guia_transportista'] as $key) {
+            if (isset($arr[$key]) && is_array($arr[$key]) && ! empty($arr[$key]['url'])) {
+                $result[$key] = [
+                    'url' => $arr[$key]['url'] ?? '',
+                    'path_relativo' => $arr[$key]['path_relativo'] ?? '',
+                    'nombre_original' => $arr[$key]['nombre_original'] ?? null,
+                    'extension' => $arr[$key]['extension'] ?? null,
+                ];
+            }
+        }
+        return $result;
+    }
+
+    /**
+     * Validar que el string de guía (remitente o transportista) no esté repetido para el mismo proveedor.
+     * Excluye por defecto las recepciones anuladas (estado_pesaje / estado_salida en estados terminales)
+     * y la propia fila indicada por $excluirId (para updates).
+     *
+     * @return string|null Mensaje de error si hay duplicado, null si OK.
+     */
+    public static function validar_unicidad_guia_proveedor(
+        ?int $idProveedor,
+        ?string $guiaRemitente,
+        ?string $guiaTransportista,
+        ?int $excluirId = null,
+    ): ?string {
+        if (! $idProveedor) {
+            return null;
+        }
+
+        $campos = [
+            'guia_remitente' => $guiaRemitente,
+            'guia_transportista' => $guiaTransportista,
+        ];
+
+        foreach ($campos as $column => $valor) {
+            if (! $valor || trim($valor) === '') {
+                continue;
+            }
+
+            $sql = 'SELECT id, guia_remitente, guia_transportista FROM recepcion_unidad WHERE id_proveedor_minero = :id_proveedor AND '.$column.' = :valor';
+            $params = [
+                'id_proveedor' => $idProveedor,
+                'valor' => $valor,
+            ];
+
+            if ($excluirId !== null) {
+                $sql .= ' AND id <> :excluir';
+                $params['excluir'] = $excluirId;
+            }
+
+            $row = DB::selectOne($sql, $params);
+            if ($row) {
+                $etiqueta = $column === 'guia_remitente' ? 'remitente' : 'transportista';
+                return "Ya existe una recepción del mismo proveedor con la misma guía {$etiqueta}.";
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Crear un registro de recepción.
      */
     public static function crear_recepcion(array $data): int
@@ -239,6 +323,9 @@ class RecepcionUnidadesData
             'estado_pesaje' => EstadoPesaje::SinPesar->value,
             'guia_remitente' => $data['guia_remitente'] ?? null,
             'guia_transportista' => $data['guia_transportista'] ?? null,
+            'documentos_programacion' => isset($data['documentos_programacion']) && is_array($data['documentos_programacion'])
+                ? json_encode($data['documentos_programacion'])
+                : null,
         ]);
 
         return $recepcion->id;

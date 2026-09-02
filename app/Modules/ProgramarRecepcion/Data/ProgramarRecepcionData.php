@@ -35,6 +35,7 @@ class ProgramarRecepcionData
             ru.tipo_ingreso,
             ru.guia_remitente,
             ru.guia_transportista,
+            ru.documentos_programacion,
             ru.fecha_estimada_llegada,
             ru.observacion,
             ru.es_programacion,
@@ -73,7 +74,14 @@ class ProgramarRecepcionData
 
         $sql .= ' ORDER BY COALESCE(ru.fecha_hora_ingreso, ru.fecha_estimada_llegada, ru.created_at) DESC';
 
-        return DB::select($sql, $params);
+        $results = DB::select($sql, $params);
+        foreach ($results as $item) {
+            if (isset($item->documentos_programacion)) {
+                $item->documentos_programacion = RecepcionUnidadesData::normalizar_documentos_programacion($item->documentos_programacion);
+            }
+        }
+
+        return $results;
     }
 
     /**
@@ -155,10 +163,14 @@ class ProgramarRecepcionData
 
     /**
      * Crear una programación (recepcion_unidad con es_programacion = 1).
+     *
+     * @param  array  $data  Datos básicos de la programación. Incluye opcionalmente
+     *                       `documentos_programacion` (array con claves guia_remitente
+     *                       y guia_transportista, cada una con estructura IArchivo o null).
      */
     public static function crear_programacion(array $data): int
     {
-        return DB::table('recepcion_unidad')->insertGetId([
+        $insert = [
             'id_empleado_autoriza' => $data['id_empleado_autoriza'],
             'id_empresa_transporte' => $data['id_empresa_transporte'],
             'id_vehiculo' => $data['id_vehiculo'] ?? null,
@@ -173,19 +185,66 @@ class ProgramarRecepcionData
             'observacion' => $data['observacion'] ?? null,
             'es_programacion' => 1,
             'created_at' => now()->toDateTimeString(),
-        ]);
+        ];
+
+        $documentos = self::normalizar_documentos_input($data['documentos_programacion'] ?? null);
+        if ($documentos !== null) {
+            $insert['documentos_programacion'] = json_encode($documentos);
+        }
+
+        return DB::table('recepcion_unidad')->insertGetId($insert);
     }
 
     /**
      * Actualizar programación (solo permitido mientras NO esté confirmada).
+     *
+     * Acepta `documentos_programacion` (array normalizado) y persiste como JSON.
      */
     public static function actualizar_programacion(int $id, array $data): bool
     {
+        if (array_key_exists('documentos_programacion', $data)) {
+            $documentos = self::normalizar_documentos_input($data['documentos_programacion']);
+            $data['documentos_programacion'] = $documentos !== null
+                ? json_encode($documentos)
+                : null;
+        }
+
         return DB::table('recepcion_unidad')
             ->where('id', $id)
             ->where('es_programacion', 1)
             ->whereNull('id_empleado_recepcion')
             ->update($data) > 0;
+    }
+
+    /**
+     * Normalizar la entrada de documentos_programacion antes de persistir.
+     * Acepta array con claves guia_remitente / guia_transportista (IArchivo|null)
+     * y devuelve la misma forma o null si ambas están vacías.
+     */
+    private static function normalizar_documentos_input(mixed $input): ?array
+    {
+        if (! is_array($input)) {
+            return null;
+        }
+
+        $result = ['guia_remitente' => null, 'guia_transportista' => null];
+        foreach (['guia_remitente', 'guia_transportista'] as $key) {
+            $item = $input[$key] ?? null;
+            if (is_array($item) && ! empty($item['url'])) {
+                $result[$key] = [
+                    'url' => $item['url'],
+                    'path_relativo' => $item['path_relativo'] ?? '',
+                    'nombre_original' => $item['nombre_original'] ?? null,
+                    'extension' => $item['extension'] ?? null,
+                ];
+            }
+        }
+
+        if ($result['guia_remitente'] === null && $result['guia_transportista'] === null) {
+            return null;
+        }
+
+        return $result;
     }
 
     /**

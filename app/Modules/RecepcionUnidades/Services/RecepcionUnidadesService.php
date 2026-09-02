@@ -12,6 +12,7 @@ use App\Shared\Enums\_Generic\EstadoVisita;
 use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\ApiResponse;
 use App\Modules\RecepcionVisitas\Services\RecepcionVisitasService;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Log;
 
 class RecepcionUnidadesService
@@ -43,9 +44,33 @@ class RecepcionUnidadesService
 
     /**
      * Guardar archivos de evidencias y crear el registro de recepción.
+     *
+     * @param  array  $data  Datos básicos. Claves opcionales para archivos de guías:
+     *                       - guia_remitente_file: UploadedFile|null
+     *                       - guia_transportista_file: UploadedFile|null
+     *                       - documentos_programacion_existentes: array con estado actual
      */
     public static function crear_recepcion(array $data, array $archivos, ?array $visitaData = null): array
     {
+        // Resolver documentos_programacion a partir de archivos subidos + existentes.
+        $data = self::resolver_documentos_programacion(
+            $data,
+            $data['guia_remitente_file'] ?? null,
+            $data['guia_transportista_file'] ?? null,
+            is_array($data['documentos_programacion_existentes'] ?? null) ? $data['documentos_programacion_existentes'] : null,
+        );
+
+        // Validar unicidad de guías por proveedor.
+        $erroresUnicidad = RecepcionUnidadesData::validar_unicidad_guia_proveedor(
+            $data['id_proveedor_minero'] ?? null,
+            $data['guia_remitente'] ?? null,
+            $data['guia_transportista'] ?? null,
+            null,
+        );
+        if ($erroresUnicidad !== null) {
+            return ApiResponse::error($erroresUnicidad, 409);
+        }
+
         // Guardar los archivos de evidencias físicas en storage/app/public/recepciones
         $evidenciasGuardadas = [];
         if (! empty($archivos)) {
@@ -81,6 +106,43 @@ class RecepcionUnidadesService
         $nuevaRecepcion = RecepcionUnidadesData::get_recepcion_by_id($id);
 
         return ApiResponse::success($nuevaRecepcion, 'Recepción de unidad registrada correctamente');
+    }
+
+    /**
+     * Resolver el estado final de documentos_programacion mezclando archivos existentes y nuevos.
+     */
+    private static function resolver_documentos_programacion(
+        array $data,
+        ?UploadedFile $guiaRemitente,
+        ?UploadedFile $guiaTransportista,
+        ?array $existentes,
+    ): array {
+        $existentes = $existentes ?? [];
+        $documentos = [
+            'guia_remitente' => $existentes['guia_remitente'] ?? null,
+            'guia_transportista' => $existentes['guia_transportista'] ?? null,
+        ];
+
+        if ($guiaRemitente instanceof UploadedFile && $guiaRemitente->isValid()) {
+            $subidos = ArchivoHelper::guardarArchivos('documentos-programacion', [$guiaRemitente]);
+            $documentos['guia_remitente'] = $subidos[0] ?? null;
+        }
+        if ($guiaTransportista instanceof UploadedFile && $guiaTransportista->isValid()) {
+            $subidos = ArchivoHelper::guardarArchivos('documentos-programacion', [$guiaTransportista]);
+            $documentos['guia_transportista'] = $subidos[0] ?? null;
+        }
+
+        $data['documentos_programacion'] = ($documentos['guia_remitente'] || $documentos['guia_transportista'])
+            ? $documentos
+            : null;
+
+        unset(
+            $data['guia_remitente_file'],
+            $data['guia_transportista_file'],
+            $data['documentos_programacion_existentes'],
+        );
+
+        return $data;
     }
 
     /**

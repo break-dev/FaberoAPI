@@ -581,6 +581,7 @@ class RecepcionMineralData
             lot.id AS id_lote,
             lot.correlativo AS correlativo,
             tb.id AS ticket_numero,
+            tb.correlativo AS ticket_correlativo,
             tb.created_at AS fecha_impresion,
 
             CASE WHEN du.unidad_id IS NOT NULL THEN veh_unidad.placa ELSE vh.placa END AS placa,

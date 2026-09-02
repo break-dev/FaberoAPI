@@ -255,6 +255,7 @@ class ValidacionDistribucionData
             plm.id_lote_mineral AS id_lote,
             plm.correlativo AS correlativo,
             tb.id AS ticket_numero,
+            tb.correlativo AS ticket_correlativo,
             tb.created_at AS fecha_impresion,
             
             vh.placa AS placa,
@@ -560,9 +561,10 @@ class ValidacionDistribucionData
             lot.id AS id_lote,
             lot.correlativo AS correlativo,
             tb.id AS ticket_numero,
+            tb.correlativo AS ticket_correlativo,
             tb.created_at AS fecha_impresion,
 
-            vh.placa AS placa,
+            CASE WHEN du.unidad_id IS NOT NULL THEN veh_unidad.placa ELSE vh.placa END AS placa,
 
             lot.tipo_producto,
             lot.tipo_mineral,
@@ -572,10 +574,14 @@ class ValidacionDistribucionData
             pr.ruc AS ruc_proveedor,
             pr.razon_social AS proveedor,
 
-            CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, '')) AS conductor,
-            cnd.numero_licencia AS licencia_conductor,
+            CASE WHEN du.unidad_id IS NOT NULL THEN
+                CONCAT(COALESCE(cnd_unidad.apellido, ''), ' ', COALESCE(cnd_unidad.nombre, ''))
+            ELSE
+                CONCAT(COALESCE(cnd.apellido, ''), ' ', COALESCE(cnd.nombre, ''))
+            END AS conductor,
+            CASE WHEN du.unidad_id IS NOT NULL THEN cnd_unidad.numero_licencia ELSE cnd.numero_licencia END AS licencia_conductor,
 
-            emp.razon_social AS empresa_transporte,
+            CASE WHEN du.unidad_id IS NOT NULL THEN emp_unidad.razon_social ELSE emp.razon_social END AS empresa_transporte,
 
             CASE WHEN gui.sin_guia_transportista = 1 OR gui.guia_transportista IS NULL OR gui.guia_transportista = '' THEN NULL ELSE gui.guia_transportista END AS guia_transporte,
 
@@ -601,6 +607,10 @@ class ValidacionDistribucionData
             lot.peso_final AS peso_tara,
             lot.peso_neto AS peso_neto,
 
+            -- Datos de despacho (última distribución activa del lote)
+            desp_info.despacho_correlativo AS despacho_correlativo,
+            desp_info.planta_destino_nombre AS planta_destino_nombre,
+
             CONCAT(COALESCE(eml.apellido, ''), ' ', COALESCE(eml.nombre, '')) AS operador,
             eml.dni AS dni_operador,
             cr.nombre AS cargo_operador
@@ -625,6 +635,42 @@ class ValidacionDistribucionData
         LEFT JOIN zona_origen zo ON zo.id = lot.id_zona_origen
         LEFT JOIN empleado eml ON eml.id = rec.id_empleado_recepcion
         LEFT JOIN cargo cr ON cr.id = eml.id_cargo
+        -- Última distribución activa del lote (para contexto de despacho)
+        LEFT JOIN (
+            SELECT
+                dd.id_lote_mineral,
+                d.correlativo AS despacho_correlativo,
+                pd.razon_social AS planta_destino_nombre
+            FROM distribucion_detalle ddt
+            INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
+            INNER JOIN distribucion di ON di.id = ddt.id_distribucion
+            INNER JOIN despacho d ON d.id = di.id_despacho
+            LEFT JOIN planta_destino pd ON pd.id = d.id_planta_destino
+            WHERE dd.id_lote_mineral = :id_lote
+            ORDER BY di.created_at DESC, ddt.id DESC
+            LIMIT 1
+        ) desp_info ON desp_info.id_lote_mineral = lot.id
+        -- Unidad del despacho (cuando el pesaje fue vía distribución): lleva la placa,
+        -- transportista y conductor que el usuario ingresó al pesar, no los del lote original.
+        LEFT JOIN (
+            SELECT
+                dd.id_lote_mineral,
+                ru_unidad.id AS unidad_id,
+                ru_unidad.id_vehiculo AS unidad_vehiculo_id,
+                ru_unidad.id_empresa_transporte AS unidad_emp_trans_id,
+                ru_unidad.id_conductor AS unidad_conductor_id
+            FROM distribucion_detalle ddt_unidad
+            INNER JOIN distribucion di_unidad ON di_unidad.id = ddt_unidad.id_distribucion
+            INNER JOIN despacho_detalle dd ON dd.id = ddt_unidad.id_despacho_detalle
+            INNER JOIN recepcion_unidad ru_unidad ON ru_unidad.id_distribucion = di_unidad.id
+            WHERE dd.id_lote_mineral = :id_lote
+              AND ddt_unidad.id_ticket_balanza IS NOT NULL
+            ORDER BY ddt_unidad.id DESC
+            LIMIT 1
+        ) du ON du.id_lote_mineral = lot.id
+        LEFT JOIN vehiculo veh_unidad ON veh_unidad.id = du.unidad_vehiculo_id
+        LEFT JOIN empresa_transporte emp_unidad ON emp_unidad.id = du.unidad_emp_trans_id
+        LEFT JOIN conductor cnd_unidad ON cnd_unidad.id = du.unidad_conductor_id
         WHERE lot.id = :id_lote
         LIMIT 1
         ";
@@ -634,6 +680,8 @@ class ValidacionDistribucionData
             $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
             $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;
             $item->peso_neto = $item->peso_neto !== null ? (float) $item->peso_neto : null;
+            $item->despacho_correlativo = $item->despacho_correlativo !== null ? (string) $item->despacho_correlativo : null;
+            $item->planta_destino_nombre = $item->planta_destino_nombre !== null ? (string) $item->planta_destino_nombre : null;
 
             return (array) $item;
         }

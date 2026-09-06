@@ -101,6 +101,7 @@ class ValidacionDistribucionService
             $lote = DB::table('lote_mineral')->where('id', $idLote)->lockForUpdate()->first();
             if (! $lote) {
                 DB::rollBack();
+
                 return ApiResponse::error('No se encontró el lote.', 404);
             }
 
@@ -118,6 +119,8 @@ class ValidacionDistribucionService
                 // Esto permite que editar la recepcion de la particion NO toque
                 // la original, y mantiene el mismo ticket/correlativo visible
                 // en la UI para que el operador vincule las dos filas.
+                // Si el lote padre nunca tuvo ticket, la A queda con idTicket=null;
+                // el ticket se asigna al validar la particion (igual que B+).
                 $parentRecepcion = $lote->id_recepcion_unidad !== null
                     ? DB::table('recepcion_unidad')->where('id', $lote->id_recepcion_unidad)->first()
                     : null;
@@ -136,30 +139,28 @@ class ValidacionDistribucionService
                     $idRecepA = self::crearRecepcionFicticia($lote, $data)->id;
                 }
 
-                $idTicketA = $lote->id_ticket_balanza ?? self::crearTicketBalanza();
                 $creaciones[] = [
                     'letra' => self::letraPara($countExistentes + 0),
                     'idRecepcion' => $idRecepA,
-                    'idTicket' => $idTicketA,
+                    'idTicket' => $lote->id_ticket_balanza,
                 ];
 
-                // Particion B: recepcion ficticia nueva + ticket nuevo (patron B+).
+                // Particion B: sin ticket al crear. Se asigna al validar.
                 $idRecepB = self::crearRecepcionFicticia($lote, $data)->id;
-                $ticketB = self::crearTicketBalanza();
                 $creaciones[] = [
                     'letra' => self::letraPara($countExistentes + 1),
                     'idRecepcion' => $idRecepB,
-                    'idTicket' => $ticketB,
+                    'idTicket' => null,
                 ];
             } else {
-                // Rama B+ original: 1 sola particion con recepcion ficticia nueva.
+                // Rama B+: 1 sola particion con recepcion ficticia nueva y sin ticket.
+                // El ticket se asigna al validar la particion o el lote padre.
                 $recepcionInput = $data['recepcion'] ?? [];
                 $idRecep = self::crearRecepcionFicticia($lote, $data, $recepcionInput)->id;
-                $ticket = self::crearTicketBalanza();
                 $creaciones[] = [
                     'letra' => self::letraPara($countExistentes),
                     'idRecepcion' => $idRecep,
-                    'idTicket' => $ticket,
+                    'idTicket' => null,
                 ];
             }
 
@@ -234,6 +235,7 @@ class ValidacionDistribucionService
             $letra = chr(65 + ($m % 26)).$letra;
             $m = intdiv($m, 26);
         }
+
         return $letra;
     }
 
@@ -337,6 +339,7 @@ class ValidacionDistribucionService
             formatoFecha: 'dmy',
             incluirPrefijo: false,
         );
+
         return DB::table('ticket_balanza')->insertGetId([
             'correlativo' => $ticketData['correlativo'],
             'numero_correlativo' => $ticketData['numero_correlativo'],
@@ -674,6 +677,8 @@ class ValidacionDistribucionService
     /**
      * Valida una particion individual. El backend evalua el lote completo
      * (incluyendo la suma de pesos netos) y solo persiste la marca si todo cumple.
+     * Si la particion no tiene ticket de balanza (caso B+ recien creada), se genera
+     * uno nuevo dentro de la misma transaccion.
      *
      * @param  array{id_empleado: int}  $params
      */
@@ -714,11 +719,28 @@ class ValidacionDistribucionService
         try {
             DB::beginTransaction();
 
-            DB::table('particion_lote_mineral')->where('id', $idParticion)->update([
+            $updateFields = [
                 'esta_validado' => 1,
                 'id_empleado_valida' => $idEmpleado,
                 'fecha_hora_validacion' => $now,
-            ]);
+            ];
+
+            // Si la particion es B+ (sin ticket), generamos uno dentro de la
+            // misma transaccion para que el response ya incluya el correlativo.
+            if ($particion->id_ticket_balanza === null) {
+                $updateFields['id_ticket_balanza'] = self::crearTicketBalanza();
+            }
+
+            // Bloqueo automatico al validar: si la particion NO estaba bloqueada,
+            // pasa a bloqueada para que futuros rebalances no alteren sus pesos
+            // ya definitivos. Solo aplica si la columna existe en la tabla.
+            $hasBloqueadoCol = ValidacionDistribucionData::has_column_es_bloqueado();
+            $estabaBloqueada = $hasBloqueadoCol ? (bool) $particion->es_bloqueado : true;
+            if ($hasBloqueadoCol && ! $estabaBloqueada) {
+                $updateFields['es_bloqueado'] = 1;
+            }
+
+            DB::table('particion_lote_mineral')->where('id', $idParticion)->update($updateFields);
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -727,13 +749,17 @@ class ValidacionDistribucionService
             return ApiResponse::error('Error al validar la partición: '.$e->getMessage(), 500);
         }
 
-        $actualizada = ParticionLoteMineral::find($idParticion);
+        // Response hidratado con ticket_correlativo para que el frontend pueda
+        // mostrar el ticket nuevo sin un GET adicional.
+        $actualizada = ValidacionDistribucionData::get_particion_hydrated($idParticion);
 
         return ApiResponse::success($actualizada, 'Partición validada correctamente.');
     }
 
     /**
      * Valida un lote completo: marca todas sus particiones activas + el propio lote.
+     * Para cada particion sin ticket de balanza (caso B+), genera uno dentro de la
+     * misma transaccion para que el response incluya los correlativos nuevos.
      *
      * @param  array{id_empleado: int}  $params
      */
@@ -765,11 +791,34 @@ class ValidacionDistribucionService
             DB::beginTransaction();
 
             if (! empty($idParticiones)) {
+                // 1) Identificar particiones sin ticket y asignarles uno nuevo.
+                $partSinTicket = DB::table('particion_lote_mineral')
+                    ->whereIn('id', $idParticiones)
+                    ->whereNull('id_ticket_balanza')
+                    ->pluck('id')
+                    ->all();
+
+                foreach ($partSinTicket as $idPart) {
+                    $newTicketId = self::crearTicketBalanza();
+                    DB::table('particion_lote_mineral')
+                        ->where('id', (int) $idPart)
+                        ->update(['id_ticket_balanza' => $newTicketId]);
+                }
+
+                // 2) Marcar todas como validadas (incluyendo las del paso 1).
+                //    Si la columna es_bloqueado existe, las no bloqueadas pasan
+                //    a bloqueadas para que el rebalance no altere pesos definitivos.
                 $placeholders = implode(',', array_fill(0, count($idParticiones), '?'));
+                $bloqueadoClause = ValidacionDistribucionData::has_column_es_bloqueado()
+                    ? ', es_bloqueado = 1'
+                    : '';
+                $bloqueadoWhere = ValidacionDistribucionData::has_column_es_bloqueado()
+                    ? ' AND (es_bloqueado = 0 OR es_bloqueado IS NULL)'
+                    : '';
                 DB::statement(
                     "UPDATE particion_lote_mineral
-                     SET esta_validado = 1, id_empleado_valida = ?, fecha_hora_validacion = ?
-                     WHERE id IN ({$placeholders})",
+                     SET esta_validado = 1, id_empleado_valida = ?, fecha_hora_validacion = ?{$bloqueadoClause}
+                     WHERE id IN ({$placeholders}){$bloqueadoWhere}",
                     array_merge([$idEmpleado, $now], $idParticiones)
                 );
             }
@@ -788,16 +837,20 @@ class ValidacionDistribucionService
         }
 
         $evaluacionesPost = ValidacionDistribucionData::get_evaluacion_validacion([$idLote]);
+        $particionesHydrated = ValidacionDistribucionData::get_particiones($idLote);
 
         return ApiResponse::success([
             'id_lote_mineral' => $idLote,
             'evaluacion' => $evaluacionesPost[$idLote] ?? $eval,
+            'particiones' => $particionesHydrated,
         ], 'Lote validado correctamente.');
     }
 
     /**
      * Validacion multiple: procesa cada lote individualmente.
      * Solo persiste los lotes que cumplen; los que no cumplen se devuelven como omitidos.
+     * Para cada particion sin ticket (B+) dentro de los lotes validados, genera
+     * un ticket_balanza dentro de la misma transaccion y lo devuelve en `tickets_asignados`.
      *
      * @param  array{id_lotes: array<int, int>, id_empleado: int}  $data
      */
@@ -818,6 +871,7 @@ class ValidacionDistribucionService
 
         $validados = [];
         $omitidos = [];
+        $ticketsAsignados = []; // mapa id_particion => ticket_correlativo
 
         $now = now()->toDateTimeString();
 
@@ -832,16 +886,46 @@ class ValidacionDistribucionService
                         'lote_correlativo' => $eval['lote_correlativo'] ?? null,
                         'razones' => self::razonesDeEvaluacion($eval),
                     ];
+
                     continue;
                 }
 
                 $idParticiones = array_map('intval', array_keys($eval['particiones']));
+
                 if (! empty($idParticiones)) {
+                    // 1) Asignar tickets a las particiones B+ sin ticket.
+                    $partSinTicket = DB::table('particion_lote_mineral')
+                        ->whereIn('id', $idParticiones)
+                        ->whereNull('id_ticket_balanza')
+                        ->get(['id']);
+
+                    foreach ($partSinTicket as $p) {
+                        $newTicketId = self::crearTicketBalanza();
+                        DB::table('particion_lote_mineral')
+                            ->where('id', (int) $p->id)
+                            ->update(['id_ticket_balanza' => $newTicketId]);
+
+                        // Recuperar el correlativo del ticket recién creado.
+                        $correlativo = DB::table('ticket_balanza')
+                            ->where('id', $newTicketId)
+                            ->value('correlativo');
+                        $ticketsAsignados[(int) $p->id] = $correlativo !== null ? (string) $correlativo : null;
+                    }
+
+                    // 2) Marcar todas las particiones del lote como validadas.
+                    //    Si la columna es_bloqueado existe, las no bloqueadas
+                    //    pasan a bloqueadas para preservar pesos definitivos.
                     $placeholders = implode(',', array_fill(0, count($idParticiones), '?'));
+                    $bloqueadoClause = ValidacionDistribucionData::has_column_es_bloqueado()
+                        ? ', es_bloqueado = 1'
+                        : '';
+                    $bloqueadoWhere = ValidacionDistribucionData::has_column_es_bloqueado()
+                        ? ' AND (es_bloqueado = 0 OR es_bloqueado IS NULL)'
+                        : '';
                     DB::statement(
                         "UPDATE particion_lote_mineral
-                         SET esta_validado = 1, id_empleado_valida = ?, fecha_hora_validacion = ?
-                         WHERE id IN ({$placeholders})",
+                         SET esta_validado = 1, id_empleado_valida = ?, fecha_hora_validacion = ?{$bloqueadoClause}
+                         WHERE id IN ({$placeholders}){$bloqueadoWhere}",
                         array_merge([$idEmpleado, $now], $idParticiones)
                     );
                 }
@@ -865,6 +949,7 @@ class ValidacionDistribucionService
         return ApiResponse::success([
             'validados' => $validados,
             'omitidos' => $omitidos,
+            'tickets_asignados' => $ticketsAsignados,
         ], 'Proceso de validación múltiple finalizado.');
     }
 

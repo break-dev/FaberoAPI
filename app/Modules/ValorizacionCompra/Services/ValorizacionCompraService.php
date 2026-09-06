@@ -3,6 +3,7 @@
 namespace App\Modules\ValorizacionCompra\Services;
 
 use App\Models\LoteGuia;
+use App\Models\LoteMineral;
 use App\Models\TransaccionAnticipoProveedor;
 use App\Models\ValorizacionCompra;
 use App\Models\ValorizacionCompraDetalle;
@@ -91,6 +92,7 @@ class ValorizacionCompraService
             ]);
 
             // Guardar Detalles de lotes
+            $detallesCreados = [];
             foreach ($data['detalles'] as $det) {
                 $loteGuia = ValorizacionCompraData::find_lote_guia_con_mineral((int) $det['id_lote_guia']);
                 $lote = $loteGuia?->loteMineral
@@ -98,7 +100,7 @@ class ValorizacionCompraService
                 if (! $loteGuia || ! $lote) {
                     throw new Exception("El lote guía ID {$det['id_lote_guia']} no fue encontrado.");
                 }
-                $pesoNeto = $loteGuia->peso_neto !== null ? (float) $loteGuia->peso_neto : (float) $lote->peso_neto;
+                $pesoNeto = (float) ($lote->peso_neto_oficial ?? 0);
                 $leyHumedad = (float) $lote->ley_humedad;
                 $pesoSeco = $pesoNeto * (1 - ($leyHumedad / 100));
 
@@ -118,7 +120,7 @@ class ValorizacionCompraService
                 // Formula: subtotal = ptn * pesoSeco / 1000
                 $subtotal = ($ptn * $pesoSeco) / 1000;
 
-                ValorizacionCompraDetalle::create([
+                $detallesCreados[] = ValorizacionCompraDetalle::create([
                     'id_valorizacion_compra' => $valorizacion->id,
                     'id_lote_guia' => $det['id_lote_guia'],
                     'id_condicion_comercial' => $det['id_condicion_comercial'] ?? null,
@@ -134,6 +136,9 @@ class ValorizacionCompraService
                     'log_cambios' => [],
                 ]);
             }
+
+            // Prender flags esta_valorizado_X del lote_mineral para los detalles recien creados.
+            self::marcarLotesValorizados($detallesCreados);
 
             // Guardar Transacciones de Anticipo (si aplica tipo_pago anticipo o mixto)
             if (in_array($tipoPagoEnum->value, [TipoPagoValorizacionCompra::Anticipo->value, TipoPagoValorizacionCompra::Mixto->value]) && ! empty($data['anticipos'])) {
@@ -342,8 +347,12 @@ class ValorizacionCompraService
             ]);
 
             // Re-sincronizar detalles
+            // 1) Liberar flags de los detalles que se van a eliminar (si no quedan otras valorizaciones vivas).
+            $oldDetalles = ValorizacionCompraDetalle::where('id_valorizacion_compra', $id)->get();
             ValorizacionCompraData::delete_detalles_by_valorizacion($id);
+            self::liberarLotesValorizados($id, $oldDetalles);
 
+            $detallesCreados = [];
             foreach ($data['detalles'] as $det) {
                 $loteGuia = ValorizacionCompraData::find_lote_guia_con_mineral((int) $det['id_lote_guia']);
                 $lote = $loteGuia?->loteMineral
@@ -351,7 +360,7 @@ class ValorizacionCompraService
                 if (! $loteGuia || ! $lote) {
                     throw new Exception("El lote guía ID {$det['id_lote_guia']} no fue encontrado.");
                 }
-                $pesoNeto = $loteGuia->peso_neto !== null ? (float) $loteGuia->peso_neto : (float) $lote->peso_neto;
+                $pesoNeto = (float) ($lote->peso_neto_oficial ?? 0);
                 $leyHumedad = (float) $lote->ley_humedad;
                 $pesoSeco = $pesoNeto * (1 - ($leyHumedad / 100));
 
@@ -476,7 +485,7 @@ class ValorizacionCompraService
                     }
                 }
 
-                ValorizacionCompraDetalle::create([
+                $detallesCreados[] = ValorizacionCompraDetalle::create([
                     'id_valorizacion_compra' => $valorizacion->id,
                     'id_lote_guia' => $det['id_lote_guia'],
                     'id_condicion_comercial' => $det['id_condicion_comercial'] ?? null,
@@ -492,6 +501,10 @@ class ValorizacionCompraService
                     'log_cambios' => $logCambiosDetalle,
                 ]);
             }
+
+            // Prender flags esta_valorizado_X del lote_mineral para los detalles recien creados
+            // (los eliminados ya se liberaron arriba antes del delete).
+            self::marcarLotesValorizados($detallesCreados);
 
             // Re-sincronizar transacciones de anticipo (UPDATE en sitio preservando historial de auditoria)
             $transaccionesExistentes = ValorizacionCompraData::get_transacciones_by_valorizacion($id);
@@ -567,16 +580,18 @@ class ValorizacionCompraService
                             ];
                         }
 
-                        $saldoActualAnticipo = (float) $anticipo->saldo_actual;
-                        $saldoActualFmt = '$ '.number_format($saldoActualAnticipo, 2);
-                        if (abs((float) $transaccionPrevia->saldo_actual - $saldoActualAnticipo) > 0.0001) {
-                            $cambiosEdicion[] = [
-                                'campo_bd' => 'saldo_actual',
-                                'campo' => 'Saldo Actual',
-                                'valor_anterior' => '$ '.number_format((float) $transaccionPrevia->saldo_actual, 2),
-                                'valor_nuevo' => $saldoActualFmt,
-                            ];
-                        }
+                    $saldoActualAnticipo = (float) $anticipo->saldo_actual;
+                    $saldoActualFmt = '$ '.number_format($saldoActualAnticipo, 2);
+                    $montoCambio = abs($montoAnterior - $montoRetiradoNuevo) > 0.0001;
+                    $snapshotCambio = abs((float) $transaccionPrevia->saldo_actual - $saldoActualAnticipo) > 0.0001;
+                    if ($montoCambio && $snapshotCambio) {
+                        $cambiosEdicion[] = [
+                            'campo_bd' => 'saldo_actual',
+                            'campo' => 'Saldo Actual',
+                            'valor_anterior' => '$ '.number_format((float) $transaccionPrevia->saldo_actual, 2),
+                            'valor_nuevo' => $saldoActualFmt,
+                        ];
+                    }
 
                         if (! empty($cambiosEdicion)) {
                             $logExistente[] = [
@@ -809,6 +824,8 @@ class ValorizacionCompraService
                 'log_cambios' => $logCambios,
             ]);
 
+            self::marcarLotesValorizados($valorizacion->detalles);
+
             DB::commit();
 
             $valDetalle = ValorizacionCompraData::get_valorizacion_by_id($id);
@@ -898,9 +915,12 @@ class ValorizacionCompraService
             }
 
             if ($tipoEliminacion === 'fisica') {
-                ValorizacionCompraData::delete_transacciones_by_valorizacion($id);
+                $detallesParaLiberar = $valorizacion->detalles;
                 ValorizacionCompraData::delete_detalles_by_valorizacion($id);
+                ValorizacionCompraData::delete_transacciones_by_valorizacion($id);
                 ValorizacionCompraData::delete_model($valorizacion);
+
+                self::liberarLotesValorizados($id, $detallesParaLiberar);
 
                 DB::commit();
 
@@ -950,6 +970,8 @@ class ValorizacionCompraService
                 'evidencias_anulacion' => ! empty($evidenciasAnulacionGuardadas) ? json_encode(array_values($evidenciasAnulacionGuardadas)) : null,
                 'log_cambios' => $logCambios,
             ]);
+
+            self::liberarLotesValorizados($id, $valorizacion->detalles);
 
             DB::commit();
 
@@ -1024,7 +1046,7 @@ class ValorizacionCompraService
 
             if ($lg && $lg->loteMineral) {
                 $lote = $lg->loteMineral;
-                $pesoNeto = $lg->peso_neto !== null ? (float) $lg->peso_neto : (float) $lote->peso_neto;
+                $pesoNeto = (float) ($lote->peso_neto_oficial ?? 0);
                 $pesoSeco = $pesoNeto * (1 - ((float) $lote->ley_humedad / 100));
                 $elementoEnumTmp = ElementoQuimicoValorizacion::tryFrom($elem) ?? ElementoQuimicoValorizacion::Oro;
                 $leyTmp = $elementoEnumTmp === ElementoQuimicoValorizacion::Oro ? (float) $lote->ley_oro : (float) $lote->ley_plata;
@@ -1070,5 +1092,72 @@ class ValorizacionCompraService
             'new_total_subtotal' => $newTotalSubtotal,
             'old_det_map' => $oldDetMap,
         ];
+    }
+
+    /**
+     * Marca los lotes de una valorización como valorizados para su elemento químico.
+     * Solo prende el flag, sin verificar otras valorizaciones (apto para aprobar).
+     *
+     * @param  array<int,\App\Models\ValorizacionCompraDetalle>  $detalles
+     */
+    private static function marcarLotesValorizados(iterable $detalles): void
+    {
+        $porElemento = [];
+        foreach ($detalles as $det) {
+            $loteGuia = LoteGuia::with('loteMineral', 'particionLoteMineral.loteMineral')->find($det->id_lote_guia);
+            $lote = $loteGuia?->loteMineral ?? $loteGuia?->particionLoteMineral?->loteMineral;
+            if (! $lote) {
+                continue;
+            }
+            $elemento = $det->elemento_quimico?->value;
+            if (! in_array($elemento, ['Oro', 'Plata'], true)) {
+                continue;
+            }
+            $porElemento[$elemento][] = (int) $lote->id;
+        }
+
+        foreach ($porElemento as $elemento => $idsLotes) {
+            $idsLotes = array_values(array_unique($idsLotes));
+            $columna = $elemento === 'Oro' ? 'esta_valorizado_oro' : 'esta_valorizado_plata';
+            LoteMineral::whereIn('id', $idsLotes)->update([$columna => 1]);
+        }
+    }
+
+    /**
+     * Resetea el flag esta_valorizado_X de los lotes de una valorización, siempre que
+     * no exista otra valorización viva (no anulada) que valorice el mismo lote+elemento.
+     *
+     * @param  iterable<\App\Models\ValorizacionCompraDetalle>  $detalles
+     */
+    private static function liberarLotesValorizados(int $idValorizacionActual, iterable $detalles): void
+    {
+        $estadoAnulado = EstadoValorizacionCompra::Anulado->value;
+
+        foreach ($detalles as $det) {
+            $loteGuia = LoteGuia::with('loteMineral', 'particionLoteMineral.loteMineral')->find($det->id_lote_guia);
+            $lote = $loteGuia?->loteMineral ?? $loteGuia?->particionLoteMineral?->loteMineral;
+            if (! $lote) {
+                continue;
+            }
+            $elemento = $det->elemento_quimico?->value;
+            if (! in_array($elemento, ['Oro', 'Plata'], true)) {
+                continue;
+            }
+            $columna = $elemento === 'Oro' ? 'esta_valorizado_oro' : 'esta_valorizado_plata';
+
+            $existeOtra = DB::table('valorizacion_compramineral_detalle as vcd')
+                ->join('valorizacion_compra as vc', 'vc.id', '=', 'vcd.id_valorizacion_compra')
+                ->join('lote_guia as lg_check', 'lg_check.id', '=', 'vcd.id_lote_guia')
+                ->leftJoin('particion_lote_mineral as plm', 'plm.id', '=', 'lg_check.id_particion_lote_mineral')
+                ->whereRaw('COALESCE(lg_check.id_lote_mineral, plm.id_lote_mineral) = ?', [$lote->id])
+                ->where('vc.estado', '!=', $estadoAnulado)
+                ->where('vc.id', '!=', $idValorizacionActual)
+                ->where('vcd.elemento_quimico', $elemento)
+                ->exists();
+
+            if (! $existeOtra) {
+                LoteMineral::where('id', $lote->id)->update([$columna => 0]);
+            }
+        }
     }
 }

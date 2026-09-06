@@ -3,6 +3,7 @@
 namespace App\Modules\Blending\Data;
 
 use App\Models\Blending;
+use App\Shared\Enums\_Generic\EstadoBase;
 use Illuminate\Support\Facades\DB;
 
 class BlendingData
@@ -57,7 +58,7 @@ class BlendingData
             INNER JOIN lote_mineral lm ON lm.id = COALESCE(
                 lg.id_lote_mineral,
                 (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
-            )
+            ) AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
             LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
             LEFT JOIN empresa emp ON emp.id = lm.id_empresa
             INNER JOIN proveedor p ON p.id = lm.id_proveedor_minero
@@ -91,7 +92,9 @@ class BlendingData
               )
         ';
 
-        $params = [];
+        $params = [
+            'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
+        ];
         if ($idProveedor !== null) {
             $sql .= ' AND lm.id_proveedor_minero = ?';
             $params[] = $idProveedor;
@@ -188,14 +191,17 @@ class BlendingData
                     COALESCE(lm.ley_plata, b2.ley_plata, 0) AS ley_plata
                 FROM blending_detalle bd
                 LEFT JOIN lote_guia lg ON lg.id = bd.id_lote_guia
-                LEFT JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
+                LEFT JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
                 LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
                 LEFT JOIN blending b2 ON b2.id = bd.id_reblending
                 WHERE bd.id_blending = :id_blending
                 ORDER BY bd.id ASC
             ';
 
-            $detalles = DB::select($detallesSql, ['id_blending' => $r->id]);
+            $detalles = DB::select($detallesSql, [
+                'id_blending' => $r->id,
+                'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
+            ]);
 
             foreach ($detalles as $d) {
                 $d->id = (int) $d->id;
@@ -213,7 +219,9 @@ class BlendingData
             $evidencias = $r->evidencias;
             while (is_string($evidencias)) {
                 $decoded = json_decode($evidencias, true);
-                if (json_last_error() !== JSON_ERROR_NONE) break;
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    break;
+                }
                 $evidencias = $decoded;
             }
 
@@ -241,7 +249,9 @@ class BlendingData
             $logCambios = $r->log_cambios;
             while (is_string($logCambios)) {
                 $decoded = json_decode($logCambios, true);
-                if (json_last_error() !== JSON_ERROR_NONE) break;
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    break;
+                }
                 $logCambios = $decoded;
             }
 

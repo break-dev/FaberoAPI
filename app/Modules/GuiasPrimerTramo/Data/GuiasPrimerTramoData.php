@@ -161,9 +161,9 @@ class GuiasPrimerTramoData
             COALESCE(plm.correlativo, lm.correlativo) AS correlativo,
             lm.tipo_producto,
             lm.tipo_mineral,
-            COALESCE(plm.peso_inicial, lm.peso_inicial) AS peso_inicial,
-            COALESCE(plm.peso_final, lm.peso_final) AS peso_final,
-            COALESCE(plm.peso_neto, lm.peso_neto) AS peso_neto
+            COALESCE(plm.peso_inicial, lm.peso_inicial_oficial, lm.peso_inicial) AS peso_inicial,
+            COALESCE(plm.peso_final, lm.peso_final_oficial, lm.peso_final) AS peso_final,
+            COALESCE(plm.peso_neto, lm.peso_neto_oficial, lm.peso_neto) AS peso_neto
         FROM lote_guia lg
         LEFT JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral
         LEFT JOIN particion_lote_mineral plm ON plm.id = lg.id_particion_lote_mineral

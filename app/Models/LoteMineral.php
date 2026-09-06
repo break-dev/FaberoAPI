@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Shared\Enums\_Generic\EstadoBase;
+use App\Shared\Enums\_Generic\EstadoLeyes;
 use Illuminate\Database\Eloquent\Model;
 
 class LoteMineral extends Model
@@ -29,6 +31,9 @@ class LoteMineral extends Model
         'fecha_hora_peso_final',
         'peso_neto',
         'peso_actual',
+        'peso_inicial_oficial',
+        'peso_final_oficial',
+        'peso_neto_oficial',
         'tiene_particion',
         'estado',
         'condicion_ingreso',
@@ -45,6 +50,8 @@ class LoteMineral extends Model
         'con_valor_comercial',
         'fecha_hora_inicio_analisis',
         'fecha_hora_confirmacion_analisis',
+        'esta_valorizado_oro',
+        'esta_valorizado_plata',
     ];
 
     protected $casts = [
@@ -53,13 +60,20 @@ class LoteMineral extends Model
         'peso_final' => 'float',
         'peso_neto' => 'float',
         'peso_actual' => 'float',
+        'peso_inicial_oficial' => 'float',
+        'peso_final_oficial' => 'float',
+        'peso_neto_oficial' => 'float',
         'con_codigo_manual' => 'boolean',
         'tiene_particion' => 'boolean',
         'log_cambios' => 'array',
+        'estado' => EstadoBase::class,
+        'estado_leyes' => EstadoLeyes::class,
         'ley_oro' => 'float',
         'ley_plata' => 'float',
         'ley_humedad' => 'float',
         'ley_recuperacion' => 'float',
         'con_valor_comercial' => 'boolean',
+        'esta_valorizado_oro' => 'boolean',
+        'esta_valorizado_plata' => 'boolean',
     ];
 }

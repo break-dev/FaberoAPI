@@ -36,7 +36,7 @@ class ValorizacionCompraAuxData
                 INNER JOIN lote_mineral lm ON lm.id = COALESCE(
                     lg.id_lote_mineral,
                     (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
-                )
+                ) AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
                 LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
                 WHERE lm.con_valor_comercial = 1
                   -- El lote padre debe estar validado.
@@ -65,50 +65,14 @@ class ValorizacionCompraAuxData
                             AND plm.esta_validado = 1
                       )
                   )
-                  -- Excluir el lote completo si ya tiene AMBOS elementos (Oro y Plata) valorizados,
-                  -- independientemente de qué lote_guia se uso.
-                  AND NOT (
-                      EXISTS (
-                          SELECT 1
-                          FROM valorizacion_compramineral_detalle vcd
-                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
-                          WHERE (
-                              lg_check.id_lote_mineral = lm.id
-                              OR lg_check.id_particion_lote_mineral IN (
-                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
-                              )
-                          )
-                            AND vc.estado != :estado_anulado_1
-                            AND vcd.elemento_quimico = "Oro"
-                      )
-                      AND
-                      EXISTS (
-                          SELECT 1
-                          FROM valorizacion_compramineral_detalle vcd
-                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
-                          WHERE (
-                              lg_check.id_lote_mineral = lm.id
-                              OR lg_check.id_particion_lote_mineral IN (
-                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
-                              )
-                          )
-                            AND vc.estado != :estado_anulado_2
-                            AND vcd.elemento_quimico = "Plata"
-                      )
-                  )
+                  -- Excluir el lote completo si ya tiene AMBOS elementos (Oro y Plata) valorizados.
+                  AND NOT (lm.esta_valorizado_oro = 1 AND lm.esta_valorizado_plata = 1)
             ) t ON t.id_proveedor = p.id
             WHERE t.con_valor_comercial = 1
             ORDER BY p.razon_social ASC;
         ';
 
-        $anuladoVal = EstadoValorizacionCompra::Anulado->value;
-
-        return DB::select($sql, [
-            'estado_anulado_1' => $anuladoVal,
-            'estado_anulado_2' => $anuladoVal,
-        ]);
+        return DB::select($sql, ['estado_lote_no_eliminado' => EstadoBase::Eliminado->value]);
     }
 
     /**
@@ -138,7 +102,9 @@ class ValorizacionCompraAuxData
             ORDER BY c.nombre ASC;
         ";
 
-        return DB::select($sql, ['id_proveedor' => $idProveedor]);
+        return DB::select($sql, [
+            'id_proveedor' => $idProveedor,
+        ]);
     }
 
     /**
@@ -237,47 +203,19 @@ class ValorizacionCompraAuxData
                     gpt.guia_remitente AS grr,
                     CASE WHEN gpt.sin_guia_transportista = 1 OR gpt.guia_transportista IS NULL OR gpt.guia_transportista = \'\' THEN NULL ELSE gpt.guia_transportista END AS grt,
                     gpt.fecha_en_planta,
-                    lm.peso_neto AS tmh,
+                    COALESCE(lm.peso_neto_oficial, 0) AS tmh,
                     COALESCE(lm.ley_humedad, 0) AS ley_humedad,
-                    (lm.peso_neto * (1 - (COALESCE(lm.ley_humedad, 0) / 100))) AS tms,
+                    COALESCE(lm.peso_neto_oficial, 0) * (1 - (COALESCE(lm.ley_humedad, 0) / 100)) AS tms,
                     COALESCE(lm.ley_oro, 0) AS ley_oro,
                     COALESCE(lm.ley_plata, 0) AS ley_plata,
-                    EXISTS (
-                        SELECT 1
-                        FROM valorizacion_compramineral_detalle vcd
-                        INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                        INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
-                        WHERE (
-                            lg_check.id_lote_mineral = lm.id
-                            OR lg_check.id_particion_lote_mineral IN (
-                                SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
-                            )
-                        )
-                          AND vc.estado != :estado_anulado_1
-                          AND vcd.elemento_quimico = "Oro"
-                          AND (:id_val_edicion_1 IS NULL OR vc.id != :id_val_edicion_2)
-                    ) AS es_valorizado_oro,
-                    EXISTS (
-                        SELECT 1
-                        FROM valorizacion_compramineral_detalle vcd
-                        INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                        INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
-                        WHERE (
-                            lg_check.id_lote_mineral = lm.id
-                            OR lg_check.id_particion_lote_mineral IN (
-                                SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
-                            )
-                        )
-                          AND vc.estado != :estado_anulado_3
-                          AND vcd.elemento_quimico = "Plata"
-                          AND (:id_val_edicion_3 IS NULL OR vc.id != :id_val_edicion_4)
-                    ) AS es_valorizado_plata,
+                    lm.esta_valorizado_oro AS es_valorizado_oro,
+                    lm.esta_valorizado_plata AS es_valorizado_plata,
                     ROW_NUMBER() OVER (PARTITION BY lm.id ORDER BY lg.id ASC) AS rn
                 FROM lote_guia lg
                 INNER JOIN lote_mineral lm ON lm.id = COALESCE(
                     lg.id_lote_mineral,
                     (SELECT id_lote_mineral FROM particion_lote_mineral WHERE id = lg.id_particion_lote_mineral)
-                )
+                ) AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
                 LEFT JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
                 WHERE COALESCE(gpt.id_proveedor, lm.id_proveedor_minero) = :id_proveedor
                   AND lm.con_valor_comercial = 1
@@ -322,61 +260,16 @@ class ValorizacionCompraAuxData
                           0
                       ) = lm.peso_neto
                   )
-                  -- Excluir el lote completo si ya tiene AMBOS elementos (Oro y Plata)
-                  -- valorizados, independientemente de qué lote_guia se uso.
-                  AND NOT (
-                      EXISTS (
-                          SELECT 1
-                          FROM valorizacion_compramineral_detalle vcd
-                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
-                          WHERE (
-                              lg_check.id_lote_mineral = lm.id
-                              OR lg_check.id_particion_lote_mineral IN (
-                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
-                              )
-                          )
-                            AND vc.estado != :estado_anulado_5
-                            AND vcd.elemento_quimico = "Oro"
-                            AND (:id_val_edicion_5 IS NULL OR vc.id != :id_val_edicion_6)
-                      )
-                      AND
-                      EXISTS (
-                          SELECT 1
-                          FROM valorizacion_compramineral_detalle vcd
-                          INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
-                          INNER JOIN lote_guia lg_check ON lg_check.id = vcd.id_lote_guia
-                          WHERE (
-                              lg_check.id_lote_mineral = lm.id
-                              OR lg_check.id_particion_lote_mineral IN (
-                                  SELECT id FROM particion_lote_mineral WHERE id_lote_mineral = lm.id
-                              )
-                          )
-                            AND vc.estado != :estado_anulado_7
-                            AND vcd.elemento_quimico = "Plata"
-                            AND (:id_val_edicion_7 IS NULL OR vc.id != :id_val_edicion_8)
-                      )
-                  )
+                  -- Excluir el lote completo si ya tiene AMBOS elementos (Oro y Plata) valorizados.
+                  AND NOT (lm.esta_valorizado_oro = 1 AND lm.esta_valorizado_plata = 1)
             ) ranked
             WHERE ranked.rn = 1
             ORDER BY ranked.fecha_en_planta ASC, ranked.numero_correlativo ASC;
         ';
 
-        $anuladoVal = EstadoValorizacionCompra::Anulado->value;
         $lotes = DB::select($sql, [
             'id_proveedor' => $idProveedor,
-            'estado_anulado_1' => $anuladoVal,
-            'id_val_edicion_1' => $idValorizacionEdicion,
-            'id_val_edicion_2' => $idValorizacionEdicion,
-            'estado_anulado_3' => $anuladoVal,
-            'id_val_edicion_3' => $idValorizacionEdicion,
-            'id_val_edicion_4' => $idValorizacionEdicion,
-            'estado_anulado_5' => $anuladoVal,
-            'id_val_edicion_5' => $idValorizacionEdicion,
-            'id_val_edicion_6' => $idValorizacionEdicion,
-            'estado_anulado_7' => $anuladoVal,
-            'id_val_edicion_7' => $idValorizacionEdicion,
-            'id_val_edicion_8' => $idValorizacionEdicion,
+            'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
         ]);
 
         // Cargar condiciones comerciales del proveedor (Oro y Plata)

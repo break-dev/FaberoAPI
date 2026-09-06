@@ -4,6 +4,7 @@ namespace App\Modules\RecepcionUnidades\Data;
 
 use App\Models\LoteMineral;
 use App\Models\RecepcionUnidad;
+use App\Shared\Enums\_Generic\EstadoBase;
 use App\Shared\Enums\_Generic\EstadoPesaje;
 use App\Shared\Enums\_Generic\EstadoVisita;
 use App\Shared\Enums\_Generic\Periodo;
@@ -66,6 +67,7 @@ ru.guia_remitente,
         LEFT JOIN empleado emp_aut ON emp_aut.id = ru.id_empleado_autoriza
         LEFT JOIN empleado emp_rec ON emp_rec.id = ru.id_empleado_recepcion
         WHERE 1 = 1
+            AND ru.es_recepcion_ficticia = 0
         ';
 
         $params = [];
@@ -177,7 +179,8 @@ ru.guia_remitente,
         LEFT JOIN empleado emp_aut ON emp_aut.id = ru.id_empleado_autoriza
         LEFT JOIN empleado emp_rec ON emp_rec.id = ru.id_empleado_recepcion
         WHERE ru.id = :id
-        LIMIT 1;
+            AND ru.es_recepcion_ficticia = 0
+            LIMIT 1;
         ';
 
         $item = DB::selectOne($sql, ['id' => $id]);
@@ -209,10 +212,12 @@ ru.guia_remitente,
         if (! is_array($arr)) {
             return [];
         }
+
         return array_values(array_map(function ($item) {
             if (is_string($item)) {
                 $nombre = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_FILENAME);
                 $ext = pathinfo(parse_url($item, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION);
+
                 return [
                     'url' => $item,
                     'path_relativo' => str_replace(asset('storage/').'/', '', $item),
@@ -220,6 +225,7 @@ ru.guia_remitente,
                     'extension' => $ext ?: 'bin',
                 ];
             }
+
             return $item;
         }, $arr));
     }
@@ -250,6 +256,7 @@ ru.guia_remitente,
                 ];
             }
         }
+
         return $result;
     }
 
@@ -280,7 +287,7 @@ ru.guia_remitente,
                 continue;
             }
 
-            $sql = 'SELECT id, guia_remitente, guia_transportista FROM recepcion_unidad WHERE id_proveedor_minero = :id_proveedor AND '.$column.' = :valor';
+            $sql = 'SELECT id, guia_remitente, guia_transportista FROM recepcion_unidad WHERE id_proveedor_minero = :id_proveedor AND es_recepcion_ficticia = 0 AND '.$column.' = :valor';
             $params = [
                 'id_proveedor' => $idProveedor,
                 'valor' => $valor,
@@ -294,6 +301,7 @@ ru.guia_remitente,
             $row = DB::selectOne($sql, $params);
             if ($row) {
                 $etiqueta = $column === 'guia_remitente' ? 'remitente' : 'transportista';
+
                 return "Ya existe una recepción del mismo proveedor con la misma guía {$etiqueta}.";
             }
         }
@@ -343,20 +351,24 @@ ru.guia_remitente,
             lm.correlativo,
             lm.numero_correlativo,
             lm.created_at AS fecha_hora_registro,
-            lm.peso_inicial,
+            COALESCE(lm.peso_inicial_oficial, lm.peso_inicial) AS peso_inicial,
             lm.fecha_hora_peso_inicial,
-            lm.peso_final,
+            COALESCE(lm.peso_final_oficial, lm.peso_final) AS peso_final,
             lm.fecha_hora_peso_final,
-            lm.peso_neto,
+            COALESCE(lm.peso_neto_oficial, lm.peso_neto) AS peso_neto,
             lm.peso_actual,
             lm.tiene_particion,
             lm.estado
         FROM lote_mineral lm
         WHERE lm.id_recepcion_unidad = :id_recepcion_unidad
+          AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
         ORDER BY lm.numero_correlativo ASC
         ';
 
-        $results = DB::select($sql, ['id_recepcion_unidad' => $idRecepcionUnidad]);
+        $results = DB::select($sql, [
+            'id_recepcion_unidad' => $idRecepcionUnidad,
+            'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
+        ]);
 
         foreach ($results as $item) {
             $item->id = (int) $item->id;

@@ -2,6 +2,7 @@
 
 namespace App\Modules\ValidacionDistribucion\Data;
 
+use App\Shared\Enums\_Generic\EstadoBase;
 use Illuminate\Support\Facades\DB;
 
 class ValidacionDistribucionData
@@ -112,6 +113,85 @@ class ValidacionDistribucionData
     }
 
     /**
+     * Trae una sola particion con todos los joins necesarios
+     * (ticket_balanza, recepcion_unidad, vehiculo). Pensado para devolver
+     * al cliente despues de operaciones que pueden asignar ticket
+     * (validar_particion, validar_lote, validar_lotes) sin un segundo fetch.
+     */
+    public static function get_particion_hydrated(int $idParticion): ?object
+    {
+        $bloqueadoExpr = self::has_column_es_bloqueado()
+            ? 'plm.es_bloqueado'
+            : '0 AS es_bloqueado';
+
+        $sql = "
+            SELECT
+                plm.id,
+                plm.id_lote_mineral,
+                plm.id_ticket_balanza,
+                plm.id_recepcion_unidad,
+                plm.correlativo,
+                plm.particion,
+                plm.peso_inicial,
+                plm.fecha_hora_peso_inicial,
+                plm.peso_final,
+                plm.fecha_hora_peso_final,
+                plm.peso_neto,
+                plm.estado,
+                plm.esta_validado,
+                plm.id_empleado_valida,
+                plm.fecha_hora_validacion,
+                {$bloqueadoExpr},
+                tb.correlativo AS ticket_correlativo,
+                ru.id_vehiculo,
+                ru.id_conductor,
+                ru.id_sucursal,
+                ru.id_empresa_transporte,
+                ru.id_tipo_vehiculo,
+                ru.id_proveedor_minero,
+                ru.fecha_hora_ingreso,
+                ru.fecha_hora_salida,
+                v.placa AS vehiculo_placa,
+                v.tara AS vehiculo_tara,
+                v.capacidad AS vehiculo_capacidad
+            FROM particion_lote_mineral plm
+            LEFT JOIN ticket_balanza tb ON tb.id = plm.id_ticket_balanza
+            LEFT JOIN recepcion_unidad ru ON ru.id = plm.id_recepcion_unidad
+            LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+            WHERE plm.id = :id
+            LIMIT 1
+        ";
+
+        $row = DB::selectOne($sql, ['id' => $idParticion]);
+
+        if (! $row) {
+            return null;
+        }
+
+        $row->id = (int) $row->id;
+        $row->id_lote_mineral = (int) $row->id_lote_mineral;
+        $row->id_ticket_balanza = $row->id_ticket_balanza !== null ? (int) $row->id_ticket_balanza : null;
+        $row->id_recepcion_unidad = $row->id_recepcion_unidad !== null ? (int) $row->id_recepcion_unidad : null;
+        $row->peso_inicial = (float) ($row->peso_inicial ?? 0);
+        $row->peso_final = (float) ($row->peso_final ?? 0);
+        $row->peso_neto = (float) ($row->peso_neto ?? 0);
+        $row->es_bloqueado = (bool) $row->es_bloqueado;
+        $row->esta_validado = (bool) ($row->esta_validado ?? 0);
+        $row->id_empleado_valida = $row->id_empleado_valida !== null ? (int) $row->id_empleado_valida : null;
+        $row->fecha_hora_validacion = $row->fecha_hora_validacion !== null ? (string) $row->fecha_hora_validacion : null;
+        $row->id_vehiculo = $row->id_vehiculo !== null ? (int) $row->id_vehiculo : null;
+        $row->id_conductor = $row->id_conductor !== null ? (int) $row->id_conductor : null;
+        $row->id_sucursal = $row->id_sucursal !== null ? (int) $row->id_sucursal : null;
+        $row->id_empresa_transporte = $row->id_empresa_transporte !== null ? (int) $row->id_empresa_transporte : null;
+        $row->id_tipo_vehiculo = $row->id_tipo_vehiculo !== null ? (int) $row->id_tipo_vehiculo : null;
+        $row->id_proveedor_minero = $row->id_proveedor_minero !== null ? (int) $row->id_proveedor_minero : null;
+        $row->vehiculo_tara = $row->vehiculo_tara !== null ? (float) $row->vehiculo_tara : null;
+        $row->vehiculo_capacidad = $row->vehiculo_capacidad !== null ? (float) $row->vehiculo_capacidad : null;
+
+        return $row;
+    }
+
+    /**
      * Verifica si la columna `es_bloqueado` existe en la tabla.
      * Usado para queries defensivas ante migraciones parciales.
      */
@@ -174,10 +254,14 @@ class ValidacionDistribucionData
             LEFT JOIN recepcion_unidad ru ON ru.id = plm.id_recepcion_unidad
             LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
             WHERE plm.id_lote_mineral = :id_lote
+              AND plm.estado = :estado_particion_activo
             ORDER BY plm.id ASC
         ";
 
-        $rows = DB::select($sql, ['id_lote' => $idLote]);
+        $rows = DB::select($sql, [
+            'id_lote' => $idLote,
+            'estado_particion_activo' => EstadoBase::Activo->value,
+        ]);
 
         return array_map(function ($r) {
             $r->id = (int) $r->id;
@@ -211,6 +295,7 @@ class ValidacionDistribucionData
     {
         $sum = DB::table('particion_lote_mineral')
             ->where('id_lote_mineral', $idLote)
+            ->where('estado', EstadoBase::Activo->value)
             ->sum('peso_neto');
 
         return (float) ($sum ?? 0);
@@ -223,6 +308,7 @@ class ValidacionDistribucionData
     {
         return (int) DB::table('particion_lote_mineral')
             ->where('id_lote_mineral', $idLote)
+            ->where('estado', EstadoBase::Activo->value)
             ->count();
     }
 

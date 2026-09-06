@@ -68,6 +68,11 @@ Route::middleware('auth.jwt.custom')->group(function () {
         // lotes de mineral disponibles para guías
         Route::get('/lotes-mineral-disponibles', [AuxController::class, 'get_lotes_mineral_disponibles']);
 
+        // archivos de guías (documentos_programacion) de una recepción específica.
+        // Usado para autocompletar inputs al registrar una guía de primer tramo
+        // cuando los items seleccionados pertenecen a una sola recepción.
+        Route::get('/recepcion-unidad/{idRecepcion}/archivos-guias', [AuxController::class, 'get_archivos_guias_recepcion']);
+
         // valorizacion compra auxiliares
         Route::get('/proveedores-valorizacion', [AuxController::class, 'get_proveedores_valorizacion']);
         Route::get('/concesiones-proveedor', [AuxController::class, 'get_concesiones_proveedor']);

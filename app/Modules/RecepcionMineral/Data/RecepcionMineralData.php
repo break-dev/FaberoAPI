@@ -2,6 +2,7 @@
 
 namespace App\Modules\RecepcionMineral\Data;
 
+use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Shared\Enums\_Generic\EstadoPesaje;
 use Illuminate\Support\Facades\DB;
 
@@ -40,7 +41,8 @@ class RecepcionMineralData
             ru.estado_pesaje,
             ru.id_sucursal AS id_sucursal,
             ru.es_recepcion_ficticia,
-            ru.es_programacion
+            ru.es_programacion,
+            ru.documentos_programacion
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -80,6 +82,9 @@ class RecepcionMineralData
             if (isset($item->evidencias)) {
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
             }
+            $item->documentos_programacion = RecepcionUnidadesData::normalizar_documentos_programacion(
+                $item->documentos_programacion ?? null,
+            );
             // Obtener los lotes de esta recepción
             $item->lotes = self::get_lotes_by_recepcion($item->id);
             // Adjuntar los detalles de distribución (vacío si no es despacho o no hay detalles)
@@ -93,7 +98,7 @@ class RecepcionMineralData
      * Obtener los detalles de distribución para varias recepciones (solo aplica a recepciones tipo Despacho).
      *
      * @param  array<int, int>  $idRecepcionesUnidad
-     * @return array<int, array<int, object>>  indexado por id de recepción_unidad
+     * @return array<int, array<int, object>> indexado por id de recepción_unidad
      */
     public static function get_distribucion_detalles_by_recepciones(array $idRecepcionesUnidad): array
     {
@@ -369,7 +374,8 @@ class RecepcionMineralData
             ru.estado_pesaje,
             ru.id_sucursal AS id_sucursal,
             ru.es_recepcion_ficticia,
-            ru.es_programacion
+            ru.es_programacion,
+            ru.documentos_programacion
         FROM
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
@@ -387,6 +393,9 @@ class RecepcionMineralData
             if (isset($item->evidencias)) {
                 $item->evidencias = json_decode($item->evidencias, true) ?? [];
             }
+            $item->documentos_programacion = RecepcionUnidadesData::normalizar_documentos_programacion(
+                $item->documentos_programacion ?? null,
+            );
             $item->lotes = self::get_lotes_by_recepcion($id);
             if (($item->tipo_ingreso ?? null) === 'Despacho de Mineral') {
                 $detalles = self::get_distribucion_detalles_by_recepciones([$id]);

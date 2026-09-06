@@ -23,8 +23,8 @@ class ValorizacionCompraData
             'empleadoAnulacion:id,nombre,apellido',
             'detalles',
             'detalles.loteGuia',
-            'detalles.loteGuia.loteMineral:id,numero_correlativo,correlativo,ley_humedad,ley_oro,ley_plata,peso_neto',
-            'detalles.loteGuia.particionLoteMineral.loteMineral:id,numero_correlativo,correlativo,ley_humedad,ley_oro,ley_plata,peso_neto',
+            'detalles.loteGuia.loteMineral:id,numero_correlativo,correlativo,ley_humedad,ley_oro,ley_plata,peso_neto,peso_neto_oficial',
+            'detalles.loteGuia.particionLoteMineral.loteMineral:id,numero_correlativo,correlativo,ley_humedad,ley_oro,ley_plata,peso_neto,peso_neto_oficial',
             'detalles.loteGuia.guiaPrimerTramo:id,guia_remitente,guia_transportista,sin_guia_transportista,fecha_en_planta',
             'transaccionesAnticipo',
             'transaccionesAnticipo.anticipo:id,serie_factura,numero_factura,saldo_inicial,saldo_actual',
@@ -77,7 +77,7 @@ class ValorizacionCompraData
                 $lm = $lg ? ($lg->loteMineral ?? $lg->particionLoteMineral?->loteMineral) : null;
                 $gpt = $lg ? $lg->guiaPrimerTramo : null;
 
-                $tmh = $lg && $lg->peso_neto !== null ? (float) $lg->peso_neto : ($lm ? (float) $lm->peso_neto : 0);
+                $tmh = $lm ? (float) ($lm->peso_neto_oficial ?? 0) : 0;
                 $leyHumedad = $lm ? (float) $lm->ley_humedad : 0;
                 $tms = round($tmh * (1 - ($leyHumedad / 100)), 4);
 

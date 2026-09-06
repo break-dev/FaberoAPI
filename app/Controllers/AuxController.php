@@ -3,6 +3,7 @@
 namespace App\Controllers;
 
 use App\Modules\PlantasDestino\Services\PlantasDestinoService;
+use App\Modules\RecepcionUnidades\Data\RecepcionUnidadesData;
 use App\Services\ConductoresService;
 use App\Services\EmpleadosService;
 use App\Services\EmpresasService;
@@ -427,6 +428,7 @@ class AuxController extends Controller
             lm.id AS id_lote_mineral,
             NULL AS id_particion_lote_mineral,
             lm.id_recepcion_unidad,
+            lm.id_recepcion_unidad AS id_recepcion_unidad_padre,
             lm.id_proveedor_minero,
             lm.correlativo,
             lm.numero_correlativo,
@@ -435,9 +437,15 @@ class AuxController extends Controller
             lm.peso_inicial,
             lm.peso_final,
             lm.peso_neto,
+            lm.peso_inicial_oficial,
+            lm.peso_final_oficial,
+            lm.peso_neto_oficial,
             lm.created_at,
             p.razon_social AS proveedor_nombre,
             v.placa AS vehiculo_placa,
+            ru.guia_remitente AS guia_remitente_recepcion,
+            ru.guia_transportista AS guia_transportista_recepcion,
+            ru.documentos_programacion AS documentos_programacion_recepcion,
             (
                 SELECT COUNT(*)
                 FROM lote_guia lg
@@ -455,12 +463,14 @@ class AuxController extends Controller
           AND lm.peso_neto > 0
           AND lm.tiene_particion = 0
           AND lm.esta_validado = 1
+          AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
           AND ru.estado_pesaje = :estado_pesaje
         ';
 
         $params = [
             'estado_pesaje' => $estadoPesaje,
             'estado_guia_activo' => $estadoGuiaActivo,
+            'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
         ];
 
         if ($idSucursal !== null) {
@@ -487,8 +497,19 @@ class AuxController extends Controller
             $row->peso_inicial = $row->peso_inicial !== null ? (float) $row->peso_inicial : null;
             $row->peso_final = $row->peso_final !== null ? (float) $row->peso_final : null;
             $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
+            $row->peso_inicial_oficial = $row->peso_inicial_oficial !== null ? (float) $row->peso_inicial_oficial : null;
+            $row->peso_final_oficial = $row->peso_final_oficial !== null ? (float) $row->peso_final_oficial : null;
+            $row->peso_neto_oficial = $row->peso_neto_oficial !== null ? (float) $row->peso_neto_oficial : null;
+            $row->id_recepcion_unidad_padre = $row->id_recepcion_unidad_padre !== null
+                ? (int) $row->id_recepcion_unidad_padre
+                : null;
             $row->en_guia = (int) $row->en_guia > 0;
             $row->id = (int) $row->id_lote_mineral;
+            $row->documentos_programacion_recepcion = RecepcionUnidadesData::normalizar_documentos_programacion(
+                $row->documentos_programacion_recepcion ?? null,
+            );
+            $row->guia_remitente_recepcion = $row->guia_remitente_recepcion !== null ? (string) $row->guia_remitente_recepcion : null;
+            $row->guia_transportista_recepcion = $row->guia_transportista_recepcion !== null ? (string) $row->guia_transportista_recepcion : null;
             $results[] = $row;
         }
 
@@ -501,6 +522,7 @@ class AuxController extends Controller
             plm.id_lote_mineral,
             plm.id AS id_particion_lote_mineral,
             lm.id_recepcion_unidad,
+            lm.id_recepcion_unidad AS id_recepcion_unidad_padre,
             lm.id_proveedor_minero,
             plm.correlativo,
             lm.numero_correlativo,
@@ -512,6 +534,9 @@ class AuxController extends Controller
             plm.fecha_hora_peso_inicial AS created_at,
             p.razon_social AS proveedor_nombre,
             v.placa AS vehiculo_placa,
+            ru.guia_remitente AS guia_remitente_recepcion,
+            ru.guia_transportista AS guia_transportista_recepcion,
+            ru.documentos_programacion AS documentos_programacion_recepcion,
             (
                 SELECT COUNT(*)
                 FROM lote_guia lg
@@ -530,17 +555,22 @@ class AuxController extends Controller
           AND ru.estado_pesaje = :estado_pesaje
           AND plm.esta_validado = 1
           AND lm.esta_validado = 1
+          AND plm.estado = :estado_particion_activo
+          AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
           AND COALESCE((
                 SELECT SUM(plm2.peso_neto)
                 FROM particion_lote_mineral plm2
                 WHERE plm2.id_lote_mineral = lm.id
                   AND plm2.peso_neto > 0
+                  AND plm2.estado = :estado_particion_activo
             ), 0) = lm.peso_neto
         ';
 
         $params2 = [
             'estado_pesaje' => $estadoPesaje,
             'estado_guia_activo' => $estadoGuiaActivo,
+            'estado_particion_activo' => EstadoBase::Activo->value,
+            'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
         ];
 
         if ($idSucursal !== null) {
@@ -567,8 +597,16 @@ class AuxController extends Controller
             $row->peso_inicial = $row->peso_inicial !== null ? (float) $row->peso_inicial : null;
             $row->peso_final = $row->peso_final !== null ? (float) $row->peso_final : null;
             $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
+            $row->id_recepcion_unidad_padre = $row->id_recepcion_unidad_padre !== null
+                ? (int) $row->id_recepcion_unidad_padre
+                : null;
             $row->en_guia = (int) $row->en_guia > 0;
             $row->id = (int) $row->id_particion_lote_mineral;
+            $row->documentos_programacion_recepcion = RecepcionUnidadesData::normalizar_documentos_programacion(
+                $row->documentos_programacion_recepcion ?? null,
+            );
+            $row->guia_remitente_recepcion = $row->guia_remitente_recepcion !== null ? (string) $row->guia_remitente_recepcion : null;
+            $row->guia_transportista_recepcion = $row->guia_transportista_recepcion !== null ? (string) $row->guia_transportista_recepcion : null;
             $results[] = $row;
         }
 
@@ -577,6 +615,33 @@ class AuxController extends Controller
             'message' => 'Items de mineral disponibles obtenidos correctamente',
             'data' => $results,
         ]);
+    }
+
+    /**
+     * Obtener archivos de guías de una recepcion (documentos_programacion.normalizado).
+     * Usado por gui-primer-tramo para autocompletar inputs de archivo al
+     * registrar una guia cuando los items seleccionados pertenecen a una sola
+     * recepcion.
+     */
+    public function get_archivos_guias_recepcion(Request $request, int $idRecepcion): JsonResponse
+    {
+        $row = DB::table('recepcion_unidad')
+            ->where('id', $idRecepcion)
+            ->first(['documentos_programacion', 'guia_remitente', 'guia_transportista']);
+
+        if (! $row) {
+            return response()->json(ApiResponse::error('No se encontró la recepción.', 404));
+        }
+
+        $docs = RecepcionUnidadesData::normalizar_documentos_programacion(
+            $row->documentos_programacion ?? null,
+        );
+
+        return response()->json(ApiResponse::success([
+            'guia_remitente' => $row->guia_remitente !== null ? (string) $row->guia_remitente : null,
+            'guia_transportista' => $row->guia_transportista !== null ? (string) $row->guia_transportista : null,
+            'documentos' => $docs,
+        ], 'Archivos y textos de guías de la recepción obtenidos correctamente.'));
     }
 
     /**

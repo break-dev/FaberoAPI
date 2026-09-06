@@ -16,6 +16,7 @@ class CierreLeyesData
 {
     /**
      * Obtener los lotes sugeridos que están pendientes de análisis de leyes.
+     * Solo retorna los pesos oficiales (pueden ser NULL si la guia aun no los seteo).
      */
     public static function get_lotes_sugeridos(): array
     {
@@ -25,7 +26,9 @@ class CierreLeyesData
                 lm.correlativo,
                 lm.numero_correlativo,
                 lm.condicion_ingreso,
-                lm.peso_neto,
+                COALESCE(lm.peso_inicial_oficial, lm.peso_inicial) AS peso_inicial,
+                COALESCE(lm.peso_final_oficial, lm.peso_final) AS peso_final,
+                COALESCE(lm.peso_neto_oficial, lm.peso_neto) AS peso_neto,
                 lm.tipo_mineral,
                 lm.estado_leyes,
                 lm.created_at
@@ -40,6 +43,8 @@ class CierreLeyesData
         foreach ($results as $row) {
             $row->id = (int) $row->id;
             $row->numero_correlativo = (int) $row->numero_correlativo;
+            $row->peso_inicial = $row->peso_inicial !== null ? (float) $row->peso_inicial : null;
+            $row->peso_final = $row->peso_final !== null ? (float) $row->peso_final : null;
             $row->peso_neto = $row->peso_neto !== null ? (float) $row->peso_neto : null;
             $row->estado_leyes = $row->estado_leyes !== null ? (string) $row->estado_leyes : null;
         }
@@ -50,7 +55,7 @@ class CierreLeyesData
     /**
      * Obtener el listado de lotes para el cierre de leyes con sus análisis asociados.
      *
-     * @param array{estados?: string[], fecha_inicio?: string|null, fecha_fin?: string|null} $filtros
+     * @param  array{estados?: string[], fecha_inicio?: string|null, fecha_fin?: string|null}  $filtros
      */
     public static function get_lotes_cierre(?int $id = null, array $filtros = []): array
     {
@@ -72,7 +77,7 @@ class CierreLeyesData
                 lm.correlativo,
                 lm.numero_correlativo,
                 lm.condicion_ingreso,
-                lm.peso_neto,
+                COALESCE(lm.peso_neto_oficial, lm.peso_neto) AS peso_neto,
                 lm.tipo_mineral,
                 lm.estado_leyes,
                 lm.con_valor_comercial,
@@ -312,7 +317,7 @@ class CierreLeyesData
     /**
      * Crear un nuevo registro en la tabla analisis_mineral.
      *
-     * @param array{id_lote_mineral: int, id_grupo_analisis_detalle: int, tipo_origen: string|null, uuid_fila: string, ley: float, esta_confirmada: int, id_empleado_registro: int} $datos
+     * @param  array{id_lote_mineral: int, id_grupo_analisis_detalle: int, tipo_origen: string|null, uuid_fila: string, ley: float, esta_confirmada: int, id_empleado_registro: int}  $datos
      */
     public static function crear_analisis_mineral(array $datos): AnalisisMineral
     {
@@ -443,7 +448,7 @@ class CierreLeyesData
     /**
      * Actualizar el lote mineral al confirmar y cerrar las leyes.
      *
-     * @param array{ley_oro: float, ley_plata: float, ley_humedad: float, ley_recuperacion: float} $leyesValores
+     * @param  array{ley_oro: float, ley_plata: float, ley_humedad: float, ley_recuperacion: float}  $leyesValores
      */
     public static function confirmar_y_cerrar_lote(
         LoteMineral $lote,

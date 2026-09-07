@@ -627,7 +627,12 @@ class ProgramacionDespachosService
      * Calcula merma contra peso_tomado del lote (peso húmedo → peso seco)
      * y devuelve advertencias si supera el 1%.
      *
-     * @param  array{peso_tara?: float|int|string|null, peso_bruto?: float|int|string|null}  $data
+     * @param  array{
+     *     peso_tara?: float|int|string|null,
+     *     peso_bruto?: float|int|string|null,
+     *     confirmar_tara?: bool|null,
+     *     confirmar_bruto?: bool|null
+     * }  $data
      * @return array<string, mixed>
      */
     public static function pesar_distribucion_detalle(
@@ -642,15 +647,31 @@ class ProgramacionDespachosService
         $pesoBrutoInput = array_key_exists('peso_bruto', $data) && $data['peso_bruto'] !== null
             ? (float) $data['peso_bruto']
             : null;
+        $confirmarTaraInput = array_key_exists('confirmar_tara', $data) && $data['confirmar_tara'] !== null
+            ? (bool) $data['confirmar_tara']
+            : null;
+        $confirmarBrutoInput = array_key_exists('confirmar_bruto', $data) && $data['confirmar_bruto'] !== null
+            ? (bool) $data['confirmar_bruto']
+            : null;
 
-        if ($pesoTaraInput === null && $pesoBrutoInput === null) {
-            return ApiResponse::error('Debe ingresar al menos peso_tara o peso_bruto.', 422);
-        }
-        if ($pesoTaraInput !== null && $pesoTaraInput <= 0) {
-            return ApiResponse::error('El peso tara debe ser mayor a 0.', 422);
-        }
-        if ($pesoBrutoInput !== null && $pesoBrutoInput <= 0) {
-            return ApiResponse::error('El peso bruto debe ser mayor a 0.', 422);
+        // Si la operacion es solo un toggle de confirmacion (sin enviar peso),
+        // no exigimos valores: el caso valido es "desbloquear tara" o "desbloquear
+        // bruto" sin tocar el valor numerico.
+        $esSoloToggle =
+            $pesoTaraInput === null
+            && $pesoBrutoInput === null
+            && ($confirmarTaraInput !== null || $confirmarBrutoInput !== null);
+
+        if (! $esSoloToggle) {
+            if ($pesoTaraInput === null && $pesoBrutoInput === null) {
+                return ApiResponse::error('Debe ingresar al menos peso_tara o peso_bruto.', 422);
+            }
+            if ($pesoTaraInput !== null && $pesoTaraInput <= 0) {
+                return ApiResponse::error('El peso tara debe ser mayor a 0.', 422);
+            }
+            if ($pesoBrutoInput !== null && $pesoBrutoInput <= 0) {
+                return ApiResponse::error('El peso bruto debe ser mayor a 0.', 422);
+            }
         }
 
         $advertencias = [];
@@ -658,7 +679,7 @@ class ProgramacionDespachosService
         $pesoNeto = null;
 
         try {
-            DB::transaction(function () use ($idDistribucion, $idDetalle, $pesoTaraInput, $pesoBrutoInput, &$idTicket, &$pesoNeto, &$advertencias) {
+            DB::transaction(function () use ($idDistribucion, $idDetalle, $pesoTaraInput, $pesoBrutoInput, $confirmarTaraInput, $confirmarBrutoInput, &$idTicket, &$pesoNeto, &$advertencias) {
                 $detalle = ProgramacionDespachosData::get_detalle_by_id_with_lote($idDetalle);
                 if (! $detalle) {
                     throw new \RuntimeException('Detalle de distribución no encontrado.');
@@ -698,14 +719,20 @@ class ProgramacionDespachosService
                     $idTicket,
                     $pesoTaraInput,    // null si no se envió en este save
                     $pesoBrutoInput,   // null si no se envió en este save
-                    $pesoNetoLocal
+                    $pesoNetoLocal,
+                    $confirmarTaraInput,    // null = no tocar flag
+                    $confirmarBrutoInput    // null = no tocar flag
                 );
 
                 // Calcular merma solo si peso_neto disponible y humedad > 0.
+                // La humedad viene del origen del detalle:
+                //   - id_blending poblado → blending.ley_humedad
+                //   - id_lote_mineral poblado → lote_mineral.ley_humedad
                 $pesoNeto = $pesoNetoLocal;
-                $humedad = isset($detalle['lote_ley_humedad']) && $detalle['lote_ley_humedad'] !== null
-                    ? (float) $detalle['lote_ley_humedad']
-                    : 0.0;
+                $esBlending = isset($detalle['detalle_id_blending']) && $detalle['detalle_id_blending'] !== null;
+                $humedad = $esBlending
+                    ? (float) ($detalle['blending_ley_humedad'] ?? 0.0)
+                    : (float) ($detalle['lote_ley_humedad'] ?? 0.0);
                 $pesoTomadoHumedo = (float) $detalle['peso_tomado'];
 
                 if ($humedad > 0 && $pesoTomadoHumedo > 0 && $pesoNetoLocal !== null && $pesoNetoLocal > 0) {

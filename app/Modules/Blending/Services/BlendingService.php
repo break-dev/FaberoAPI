@@ -4,7 +4,6 @@ namespace App\Modules\Blending\Services;
 
 use App\Models\Blending;
 use App\Models\BlendingDetalle;
-use App\Models\LoteGuia;
 use App\Models\LoteMineral;
 use App\Modules\Blending\Data\BlendingData;
 use App\Shared\Enums\_Generic\Periodo;
@@ -12,12 +11,75 @@ use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Helpers\CorrelativoHelper;
 use App\Shared\Responses\_Generic\RES_CambiosLog;
 use Exception;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class BlendingService
 {
+    /**
+     * Resolver el id_empresa de un item del detalle de blending.
+     *
+     * - Si viene id_lote_mineral: lookup directo en lote_mineral.id_empresa.
+     * - Si viene id_reblending: como la tabla blending no tiene id_empresa propio,
+     *   se usa el id_empresa del primer componente (lote) del reblending, asumiendo
+     *   que fue creado respetando la invariante. Si no hay componentes o no se
+     *   puede resolver, retorna null (no se valida esa fila).
+     *
+     * Retorna null si no se puede resolver (no se considera para validación).
+     */
+    private static function resolver_empresa_item(?int $idLoteMineral, ?int $idReblending): ?int
+    {
+        if ($idLoteMineral !== null && $idLoteMineral > 0) {
+            $row = DB::table('lote_mineral')->where('id', $idLoteMineral)->first();
+            if ($row && isset($row->id_empresa) && $row->id_empresa !== null) {
+                return (int) $row->id_empresa;
+            }
+            return null;
+        }
+
+        if ($idReblending !== null && $idReblending > 0) {
+            $primerDetalle = DB::table('blending_detalle')
+                ->where('id_blending', $idReblending)
+                ->whereNotNull('id_lote_mineral')
+                ->orderBy('id', 'asc')
+                ->first();
+            if ($primerDetalle && isset($primerDetalle->id_lote_mineral) && $primerDetalle->id_lote_mineral !== null) {
+                $lote = DB::table('lote_mineral')->where('id', $primerDetalle->id_lote_mineral)->first();
+                if ($lote && isset($lote->id_empresa) && $lote->id_empresa !== null) {
+                    return (int) $lote->id_empresa;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Validar que todos los items de detalle (de la mezcla y/o de las adiciones
+     * para edición) pertenezcan a la misma empresa. Lanza excepción si hay
+     * múltiples empresas distintas. Si no se puede resolver la empresa de un
+     * item, se ignora (defensivo).
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     */
+    private static function validar_misma_empresa(array $items): void
+    {
+        $empresas = [];
+        foreach ($items as $item) {
+            $idLote = ! empty($item['id_lote_mineral']) ? (int) $item['id_lote_mineral'] : null;
+            $idRebl = ! empty($item['id_reblending']) ? (int) $item['id_reblending'] : null;
+            $empresa = self::resolver_empresa_item($idLote, $idRebl);
+            if ($empresa !== null) {
+                $empresas[$empresa] = true;
+            }
+        }
+        if (count($empresas) > 1) {
+            throw new Exception(
+                'Todos los lotes y blendings seleccionados deben pertenecer a la misma empresa. '
+                . 'Se detectaron '.count($empresas).' empresas distintas en la selección.'
+            );
+        }
+    }
+
     /**
      * Obtener los lotes y blendings disponibles para mezclas.
      *
@@ -60,6 +122,8 @@ class BlendingService
                 throw new Exception('Debe incluir al menos un lote o blending para la mezcla.');
             }
 
+            self::validar_misma_empresa($detalles);
+
             $evidenciasGuardadas = [];
             if (! empty($archivos)) {
                 $evidenciasGuardadas = ArchivoHelper::guardarArchivos('blending', $archivos);
@@ -82,7 +146,7 @@ class BlendingService
             $detallesProcesados = [];
 
             foreach ($detalles as $item) {
-                $idLoteGuia = ! empty($item['id_lote_guia']) ? (int) $item['id_lote_guia'] : null;
+                $idLoteMineral = ! empty($item['id_lote_mineral']) ? (int) $item['id_lote_mineral'] : null;
                 $idReblending = ! empty($item['id_reblending']) ? (int) $item['id_reblending'] : null;
                 $pesoTomado = (float) ($item['peso_tomado'] ?? 0);
 
@@ -90,7 +154,7 @@ class BlendingService
                     throw new Exception('El peso a tomar debe ser mayor a 0.');
                 }
 
-                if ($idLoteGuia === null && $idReblending === null) {
+                if ($idLoteMineral === null && $idReblending === null) {
                     throw new Exception('Cada ítem debe especificar un lote o blending de origen.');
                 }
 
@@ -99,23 +163,10 @@ class BlendingService
                 $leyPlata = 0.0;
                 $leyHumedad = 0.0;
 
-                if ($idLoteGuia !== null) {
-                    $loteGuia = LoteGuia::with('loteMineral', 'particionLoteMineral')->where('id', $idLoteGuia)->lockForUpdate()->first();
-                    if (! $loteGuia) {
-                        throw new Exception("El lote con ID {$idLoteGuia} no fue encontrado.");
-                    }
-
-                    // Si la guía apunta a un lote directo, lo usamos; si no,
-                    // resolvemos vía la partición apuntada.
-                    $loteMineral = $loteGuia->loteMineral;
-                    if (! $loteMineral && $loteGuia->id_particion_lote_mineral) {
-                        $loteMineral = LoteMineral::where(
-                            'id',
-                            $loteGuia->particionLoteMineral->id_lote_mineral ?? 0
-                        )->first();
-                    }
+                if ($idLoteMineral !== null) {
+                    $loteMineral = LoteMineral::where('id', $idLoteMineral)->lockForUpdate()->first();
                     if (! $loteMineral) {
-                        throw new Exception("El lote de mineral asociado a la guía {$idLoteGuia} no fue encontrado.");
+                        throw new Exception("El lote con ID {$idLoteMineral} no fue encontrado.");
                     }
 
                     $pesoActualOrigen = (float) ($loteMineral->peso_actual ?? $loteMineral->peso_neto);
@@ -157,7 +208,7 @@ class BlendingService
                 $humedades[] = $leyHumedad;
 
                 $detallesProcesados[] = [
-                    'id_lote_guia' => $idLoteGuia,
+                    'id_lote_mineral' => $idLoteMineral,
                     'id_reblending' => $idReblending,
                     'peso_actual' => $pesoActualOrigen,
                     'peso_tomado' => $pesoTomado,
@@ -169,8 +220,18 @@ class BlendingService
             $leyOroFinal = ($totalTMS > 0) ? ($sumAuTMS / $totalTMS) : 0.0;
             $leyPlataFinal = ($totalTMS > 0) ? ($sumAgTMS / $totalTMS) : 0.0;
 
+            // Resolver id_empresa desde el primer detalle. Como
+            // `validar_misma_empresa` ya garantizo que todos los detalles comparten
+            // empresa, tomar el primero es suficiente.
+            $primerDetalle = $detalles[0] ?? [];
+            $idEmpresaFinal = self::resolver_empresa_item(
+                ! empty($primerDetalle['id_lote_mineral']) ? (int) $primerDetalle['id_lote_mineral'] : null,
+                ! empty($primerDetalle['id_reblending']) ? (int) $primerDetalle['id_reblending'] : null,
+            );
+
             $idBlending = Blending::insertGetId([
                 'id_empleado_registro' => $idEmpleadoRegistro,
+                'id_empresa' => $idEmpresaFinal,
                 'correlativo' => $correlativoInfo['correlativo'],
                 'numero_correlativo' => $correlativoInfo['numero_correlativo'],
                 'fecha_hora_blending' => $data['fecha_hora_blending'] ?? now(),
@@ -208,6 +269,46 @@ class BlendingService
             $blending = Blending::where('id', $idBlending)->lockForUpdate()->first();
             if (! $blending) {
                 throw new Exception('El blending no existe.');
+            }
+
+            // Validar que las nuevas adiciones pertenezcan a la misma empresa
+            // que los detalles ya existentes. Si no hay adiciones, no se valida.
+            $adiciones = $data['adiciones'] ?? [];
+            if (! empty($adiciones) && is_array($adiciones)) {
+                $detallesExistentes = DB::table('blending_detalle')
+                    ->where('id_blending', $idBlending)
+                    ->get(['id_lote_mineral', 'id_reblending'])
+                    ->map(fn ($d) => (array) $d)
+                    ->all();
+                self::validar_misma_empresa([...$detallesExistentes, ...$adiciones]);
+
+                // Si el blending todavía no tiene id_empresa (legacy NULL), derivarlo
+                // de las nuevas adiciones (la validacion garantizo consistencia).
+                if ($blending->id_empresa === null) {
+                    foreach ($adiciones as $adic) {
+                        $empresa = self::resolver_empresa_item(
+                            ! empty($adic['id_lote_mineral']) ? (int) $adic['id_lote_mineral'] : null,
+                            ! empty($adic['id_reblending']) ? (int) $adic['id_reblending'] : null,
+                        );
+                        if ($empresa !== null) {
+                            $blending->id_empresa = $empresa;
+                            break;
+                        }
+                    }
+                }
+            } elseif ($blending->id_empresa === null) {
+                // Sin adiciones pero con id_empresa NULL: backfill desde detalles existentes.
+                $primerDetalle = DB::table('blending_detalle')
+                    ->where('id_blending', $idBlending)
+                    ->whereNotNull('id_lote_mineral')
+                    ->orderBy('id', 'asc')
+                    ->first(['id_lote_mineral']);
+                if ($primerDetalle && $primerDetalle->id_lote_mineral !== null) {
+                    $empresa = self::resolver_empresa_item((int) $primerDetalle->id_lote_mineral, null);
+                    if ($empresa !== null) {
+                        $blending->id_empresa = $empresa;
+                    }
+                }
             }
 
             $logCambios = is_string($blending->log_cambios)
@@ -266,8 +367,8 @@ class BlendingService
             $nombresEliminados = $data['nombres_evidencias_eliminadas'] ?? [];
 
             if (! empty($nombresNuevos) || ! empty($nombresEliminados)) {
-                $anteriorLabel = ! empty($nombresEliminados) ? ('Eliminado(s): ' . implode(', ', $nombresEliminados)) : 'Sin cambios';
-                $nuevoLabel = ! empty($nombresNuevos) ? ('Agregado(s): ' . implode(', ', $nombresNuevos)) : 'Sin cambios';
+                $anteriorLabel = ! empty($nombresEliminados) ? ('Eliminado(s): '.implode(', ', $nombresEliminados)) : 'Sin cambios';
+                $nuevoLabel = ! empty($nombresNuevos) ? ('Agregado(s): '.implode(', ', $nombresNuevos)) : 'Sin cambios';
                 $cambiosRealizados['evidencias'] = [
                     'anterior' => $anteriorLabel,
                     'nuevo' => $nuevoLabel,
@@ -279,7 +380,7 @@ class BlendingService
             if (! empty($adiciones) && is_array($adiciones)) {
                 foreach ($adiciones as $item) {
                     $idDetalle = ! empty($item['id_detalle']) ? (int) $item['id_detalle'] : null;
-                    $idLoteGuia = ! empty($item['id_lote_guia']) ? (int) $item['id_lote_guia'] : null;
+                    $idLoteMineral = ! empty($item['id_lote_mineral']) ? (int) $item['id_lote_mineral'] : null;
                     $idReblending = ! empty($item['id_reblending']) ? (int) $item['id_reblending'] : null;
                     $pesoAdicional = (float) ($item['peso_adicional'] ?? 0);
 
@@ -294,12 +395,11 @@ class BlendingService
                             throw new Exception("El detalle de blending {$idDetalle} no fue encontrado.");
                         }
 
-                        if ($detalle->id_lote_guia !== null) {
-                            $lg = LoteGuia::with('loteMineral')->where('id', $detalle->id_lote_guia)->lockForUpdate()->first();
-                            if (! $lg || ! $lg->loteMineral) {
-                                throw new Exception("El lote {$detalle->id_lote_guia} no fue encontrado.");
+                        if ($detalle->id_lote_mineral !== null) {
+                            $lm = LoteMineral::where('id', $detalle->id_lote_mineral)->lockForUpdate()->first();
+                            if (! $lm) {
+                                throw new Exception("El lote {$detalle->id_lote_mineral} no fue encontrado.");
                             }
-                            $lm = $lg->loteMineral;
                             $disp = (float) ($lm->peso_actual ?? $lm->peso_neto);
                             if ($pesoAdicional > $disp + 0.0001) {
                                 throw new Exception("El peso adicional superó el disponible del lote ({$disp} kg).");
@@ -322,17 +422,16 @@ class BlendingService
                         $detalle->save();
                     } else {
                         // Agregar un nuevo detalle al blending
-                        if ($idLoteGuia === null && $idReblending === null) {
+                        if ($idLoteMineral === null && $idReblending === null) {
                             throw new Exception('Debe especificar un lote o blending para la adición.');
                         }
 
                         $pesoActualOrigen = 0.0;
-                        if ($idLoteGuia !== null) {
-                            $lg = LoteGuia::with('loteMineral')->where('id', $idLoteGuia)->lockForUpdate()->first();
-                            if (! $lg || ! $lg->loteMineral) {
-                                throw new Exception("El lote {$idLoteGuia} no fue encontrado.");
+                        if ($idLoteMineral !== null) {
+                            $lm = LoteMineral::where('id', $idLoteMineral)->lockForUpdate()->first();
+                            if (! $lm) {
+                                throw new Exception("El lote {$idLoteMineral} no fue encontrado.");
                             }
-                            $lm = $lg->loteMineral;
                             $pesoActualOrigen = (float) ($lm->peso_actual ?? $lm->peso_neto);
                             if ($pesoAdicional > $pesoActualOrigen + 0.0001) {
                                 throw new Exception("El peso adicional supera el disponible del lote ({$pesoActualOrigen} kg).");
@@ -353,7 +452,7 @@ class BlendingService
 
                         BlendingDetalle::create([
                             'id_blending' => $idBlending,
-                            'id_lote_guia' => $idLoteGuia,
+                            'id_lote_mineral' => $idLoteMineral,
                             'id_reblending' => $idReblending,
                             'peso_actual' => $pesoActualOrigen,
                             'peso_tomado' => $pesoAdicional,

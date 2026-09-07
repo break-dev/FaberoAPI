@@ -749,7 +749,7 @@ class ValidacionDistribucionData
             INNER JOIN distribucion di_unidad ON di_unidad.id = ddt_unidad.id_distribucion
             INNER JOIN despacho_detalle dd ON dd.id = ddt_unidad.id_despacho_detalle
             INNER JOIN recepcion_unidad ru_unidad ON ru_unidad.id_distribucion = di_unidad.id
-            WHERE dd.id_lote_mineral = :id_lote
+            WHERE dd.id_lote_mineral = :id_lote_unidad
               AND ddt_unidad.id_ticket_balanza IS NOT NULL
             ORDER BY ddt_unidad.id DESC
             LIMIT 1
@@ -761,7 +761,10 @@ class ValidacionDistribucionData
         LIMIT 1
         ";
 
-        $item = DB::selectOne($sql, ['id_lote' => $idLote]);
+        $item = DB::selectOne($sql, [
+            'id_lote' => $idLote,
+            'id_lote_unidad' => $idLote,
+        ]);
         if ($item) {
             $item->peso_bruto = $item->peso_bruto !== null ? (float) $item->peso_bruto : null;
             $item->peso_tara = $item->peso_tara !== null ? (float) $item->peso_tara : null;

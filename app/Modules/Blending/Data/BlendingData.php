@@ -4,15 +4,18 @@ namespace App\Modules\Blending\Data;
 
 use App\Models\Blending;
 use App\Shared\Enums\_Generic\EstadoBase;
+use App\Shared\Enums\ContabilidadCompra\EstadoComprobanteCompra;
 use Illuminate\Support\Facades\DB;
 
 class BlendingData
 {
     /**
-     * Obtener lista de lotes disponibles para realizar mezclas.
+     * Obtener lista de lotes y blendings disponibles para realizar mezclas.
      *
-     * Criterios de elegibilidad (1 fila por lote):
-     *  - Lote valorizado y pagado (existe cadena vcd -> vc -> cc con cc.estado = 'Pagado').
+     * Criterios de elegibilidad para LOTES (1 fila por lote):
+     *  - Lote valorizado con comprobante NO anulado (cualquier estado distinto
+     *    de "Anulado": EnEspera, EnProceso, Pagado). Antes se requería Pagado
+     *    estrictamente; se amplio para permitir reblending temprano.
      *  - Lote validado en distribución (`lote_mineral.esta_validado = 1`).
      *  - La `guia_primer_tramo` asociada no debe estar anulada.
      *  - Si el lote tiene particiones activas, TODAS deben estar validadas
@@ -20,14 +23,17 @@ class BlendingData
      *  - El `lote_guia` elegido debe referenciar una partición validada y activa
      *    si está a nivel de partición.
      *
-     * Estructura de salida:
-     *  - `tipo_origen = "lote"`, `id_reblending = null`.
-     *  - Una única fila por lote, aunque tenga particiones.
-     *  - `id_lote_guia`: `MIN(lg.id)` de una guía válida del lote (garantiza 1 fila
-     *    por lote al combinarlo con `GROUP BY lm.id`).
-     *  - `codigo` / `correlativo_origen`: `lm.correlativo` (sin sufijo de partición).
-     *  - `tmh_disponible`: `COALESCE(lm.peso_actual, lm.peso_neto)` — el sistema
-     *    descuenta el peso a nivel de lote padre en `BlendingService::crear_blending`.
+     * Criterios para BLENDINGS:
+     *  - `peso_actual > 0` (stock remanente disponible para reblending).
+     *
+     * Estructura de salida (shape unificado):
+     *  - `tipo_origen = "lote" | "blending"`.
+     *  - `id_lote_mineral`: poblado para lotes, null para blendings.
+     *  - `id_reblending`: poblado para blendings, null para lotes.
+     *  - Una única fila por lote y por blending.
+     *  - `codigo` / `correlativo_origen`: `lm.correlativo` o `b.correlativo`.
+     *  - `tmh_disponible`: `COALESCE(lm.peso_actual, lm.peso_neto)` para lotes;
+     *    `b.peso_actual` para blendings.
      *
      * La estructura sigue el patrón canónico de
      * `App\Data\ValorizacionCompraAuxData::get_proveedores_lotes_para_valorizar`
@@ -38,10 +44,9 @@ class BlendingData
      */
     public static function get_disponibles(?int $idProveedor = null, ?int $idEmpresa = null): array
     {
-        $sql = '
+        $sqlLotes = '
             SELECT
-                lm.id,
-                MIN(lg.id) AS id_lote_guia,
+                lm.id AS id_lote_mineral,
                 NULL AS id_reblending,
                 "lote" AS tipo_origen,
                 lm.correlativo AS codigo,
@@ -65,7 +70,7 @@ class BlendingData
             INNER JOIN valorizacion_compramineral_detalle vcd ON vcd.id_lote_guia = lg.id
             INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
             INNER JOIN comprobante_compra cc ON cc.id_valorizacion_compra = vc.id
-            WHERE cc.estado = "Pagado"
+            WHERE cc.estado <> :estado_comprobante_anulado
               AND lm.esta_validado = 1
               AND COALESCE(lm.peso_actual, lm.peso_neto) > 0
               -- La guía no debe estar anulada.
@@ -94,27 +99,60 @@ class BlendingData
 
         $params = [
             'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
+            'estado_comprobante_anulado' => EstadoComprobanteCompra::Anulado->value,
         ];
         if ($idProveedor !== null) {
-            $sql .= ' AND lm.id_proveedor_minero = ?';
-            $params[] = $idProveedor;
+            $sqlLotes .= ' AND lm.id_proveedor_minero = :id_proveedor';
+            $params['id_proveedor'] = $idProveedor;
         }
 
         if ($idEmpresa !== null) {
-            $sql .= ' AND lm.id_empresa = ?';
-            $params[] = $idEmpresa;
+            $sqlLotes .= ' AND lm.id_empresa = :id_empresa';
+            $params['id_empresa'] = $idEmpresa;
         }
 
-        $sql .= '
+        $sqlLotes .= '
             GROUP BY lm.id, lm.correlativo, lm.id_empresa, emp.razon_social,
                      p.id, p.razon_social, lm.peso_actual, lm.peso_neto,
                      lm.ley_humedad, lm.ley_oro, lm.ley_plata
         ';
 
-        $items = DB::select($sql, $params);
+        // Blendings con stock disponible para reblending. Se filtra por empresa
+        // cuando hay filtro aplicado (los blendings con id_empresa NULL se ocultan
+        // si hay filtro — son legacy que requiere backfill).
+        $sqlBlendings = '
+            SELECT
+                NULL AS id_lote_mineral,
+                b.id AS id_reblending,
+                "blending" AS tipo_origen,
+                b.correlativo AS codigo,
+                b.correlativo AS correlativo_origen,
+                b.id_empresa,
+                emp.razon_social AS empresa_nombre,
+                NULL AS id_proveedor,
+                "Blending" AS proveedor_nombre,
+                b.peso_actual AS tmh_disponible,
+                COALESCE(b.ley_humedad, 0) AS ley_humedad,
+                COALESCE(b.ley_oro, 0) AS ley_oro,
+                COALESCE(b.ley_plata, 0) AS ley_plata
+            FROM blending b
+            LEFT JOIN empresa emp ON emp.id = b.id_empresa
+            WHERE b.peso_actual > 0
+        ';
+
+        $paramsBlendings = [];
+        if ($idEmpresa !== null) {
+            $sqlBlendings .= ' AND b.id_empresa = :id_empresa_blending';
+            $paramsBlendings['id_empresa_blending'] = $idEmpresa;
+        }
+
+        $items = array_merge(
+            DB::select($sqlLotes, $params),
+            DB::select($sqlBlendings, $paramsBlendings)
+        );
 
         foreach ($items as $r) {
-            $r->id_lote_guia = $r->id_lote_guia !== null ? (int) $r->id_lote_guia : null;
+            $r->id_lote_mineral = $r->id_lote_mineral !== null ? (int) $r->id_lote_mineral : null;
             $r->id_reblending = $r->id_reblending !== null ? (int) $r->id_reblending : null;
             $r->id_empresa = isset($r->id_empresa) && $r->id_empresa !== null ? (int) $r->id_empresa : null;
             $r->id_proveedor = $r->id_proveedor !== null ? (int) $r->id_proveedor : null;
@@ -140,6 +178,7 @@ class BlendingData
             SELECT
                 b.id,
                 b.id_empleado_registro,
+                b.id_empresa,
                 b.correlativo,
                 b.numero_correlativo,
                 b.fecha_hora_blending,
@@ -178,7 +217,7 @@ class BlendingData
                 SELECT
                     bd.id,
                     bd.id_blending,
-                    bd.id_lote_guia,
+                    bd.id_lote_mineral,
                     bd.id_reblending,
                     bd.peso_actual,
                     bd.peso_tomado,
@@ -190,8 +229,7 @@ class BlendingData
                     COALESCE(lm.ley_oro, b2.ley_oro, 0) AS ley_oro,
                     COALESCE(lm.ley_plata, b2.ley_plata, 0) AS ley_plata
                 FROM blending_detalle bd
-                LEFT JOIN lote_guia lg ON lg.id = bd.id_lote_guia
-                LEFT JOIN lote_mineral lm ON lm.id = lg.id_lote_mineral AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
+                LEFT JOIN lote_mineral lm ON lm.id = bd.id_lote_mineral AND (lm.estado IS NULL OR lm.estado <> :estado_lote_no_eliminado)
                 LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
                 LEFT JOIN blending b2 ON b2.id = bd.id_reblending
                 WHERE bd.id_blending = :id_blending
@@ -206,7 +244,7 @@ class BlendingData
             foreach ($detalles as $d) {
                 $d->id = (int) $d->id;
                 $d->id_blending = (int) $d->id_blending;
-                $d->id_lote_guia = $d->id_lote_guia !== null ? (int) $d->id_lote_guia : null;
+                $d->id_lote_mineral = $d->id_lote_mineral !== null ? (int) $d->id_lote_mineral : null;
                 $d->id_reblending = $d->id_reblending !== null ? (int) $d->id_reblending : null;
                 $d->peso_actual = (float) $d->peso_actual;
                 $d->peso_tomado = (float) $d->peso_tomado;
@@ -258,6 +296,7 @@ class BlendingData
             $result[] = [
                 'id' => (int) $r->id,
                 'id_empleado_registro' => (int) $r->id_empleado_registro,
+                'id_empresa' => $r->id_empresa !== null ? (int) $r->id_empresa : null,
                 'empleado_registro_nombre' => $r->empleado_registro_nombre ?? 'Sistema',
                 'correlativo' => $r->correlativo,
                 'numero_correlativo' => $r->numero_correlativo,

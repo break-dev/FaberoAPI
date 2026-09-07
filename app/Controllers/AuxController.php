@@ -562,7 +562,7 @@ class AuxController extends Controller
                 FROM particion_lote_mineral plm2
                 WHERE plm2.id_lote_mineral = lm.id
                   AND plm2.peso_neto > 0
-                  AND plm2.estado = :estado_particion_activo
+                  AND plm2.estado = :estado_particion_activo_suma
             ), 0) = lm.peso_neto
         ';
 
@@ -570,6 +570,7 @@ class AuxController extends Controller
             'estado_pesaje' => $estadoPesaje,
             'estado_guia_activo' => $estadoGuiaActivo,
             'estado_particion_activo' => EstadoBase::Activo->value,
+            'estado_particion_activo_suma' => EstadoBase::Activo->value,
             'estado_lote_no_eliminado' => EstadoBase::Eliminado->value,
         ];
 

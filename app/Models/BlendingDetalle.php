@@ -13,7 +13,7 @@ class BlendingDetalle extends Model
 
     protected $fillable = [
         'id_blending',
-        'id_lote_guia',
+        'id_lote_mineral',
         'id_reblending',
         'peso_actual',
         'peso_tomado',
@@ -22,7 +22,7 @@ class BlendingDetalle extends Model
 
     protected $casts = [
         'id_blending' => 'integer',
-        'id_lote_guia' => 'integer',
+        'id_lote_mineral' => 'integer',
         'id_reblending' => 'integer',
         'peso_actual' => 'float',
         'peso_tomado' => 'float',
@@ -34,9 +34,9 @@ class BlendingDetalle extends Model
         return $this->belongsTo(Blending::class, 'id_blending');
     }
 
-    public function loteGuia(): BelongsTo
+    public function loteMineral(): BelongsTo
     {
-        return $this->belongsTo(LoteGuia::class, 'id_lote_guia');
+        return $this->belongsTo(LoteMineral::class, 'id_lote_mineral');
     }
 
     public function reblending(): BelongsTo

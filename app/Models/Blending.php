@@ -14,6 +14,7 @@ class Blending extends Model
 
     protected $fillable = [
         'id_empleado_registro',
+        'id_empresa',
         'correlativo',
         'numero_correlativo',
         'fecha_hora_blending',
@@ -30,6 +31,7 @@ class Blending extends Model
 
     protected $casts = [
         'id_empleado_registro' => 'integer',
+        'id_empresa' => 'integer',
         'fecha_hora_blending' => 'datetime',
         'evidencias' => 'array',
         'peso_neto' => 'float',
@@ -44,6 +46,11 @@ class Blending extends Model
     public function empleadoRegistro(): BelongsTo
     {
         return $this->belongsTo(Empleado::class, 'id_empleado_registro');
+    }
+
+    public function empresa(): BelongsTo
+    {
+        return $this->belongsTo(Empresa::class, 'id_empresa');
     }
 
     public function detalles(): HasMany

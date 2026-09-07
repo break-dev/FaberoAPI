@@ -30,7 +30,7 @@ class CierreLeyesService
             return ApiResponse::error('Lote no encontrado');
         }
 
-        if ($lote->estado_leyes !== EstadoLeyes::Pendiente->value && ! empty($lote->estado_leyes)) {
+        if ($lote->getRawOriginal('estado_leyes') !== EstadoLeyes::Pendiente->value) {
             return ApiResponse::error('El lote no se encuentra en estado Pendiente');
         }
 
@@ -64,7 +64,7 @@ class CierreLeyesService
             return ApiResponse::error('Lote no encontrado');
         }
 
-        if ($lote->estado_leyes !== EstadoLeyes::EnProceso->value) {
+        if ($lote->getRawOriginal('estado_leyes') !== EstadoLeyes::EnProceso->value) {
             return ApiResponse::error('El lote no se encuentra en proceso de análisis');
         }
 
@@ -328,7 +328,7 @@ class CierreLeyesService
             return ApiResponse::error('Lote no encontrado');
         }
 
-        if ($lote->estado_leyes !== EstadoLeyes::EnProceso->value) {
+        if ($lote->getRawOriginal('estado_leyes') !== EstadoLeyes::EnProceso->value) {
             return ApiResponse::error('El lote no se encuentra en proceso de análisis');
         }
 

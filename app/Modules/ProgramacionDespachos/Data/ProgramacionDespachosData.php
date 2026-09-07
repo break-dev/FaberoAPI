@@ -3,7 +3,9 @@
 namespace App\Modules\ProgramacionDespachos\Data;
 
 use App\Shared\Enums\_Generic\EstadoBase;
+use App\Shared\Enums\_Generic\EstadoGuiaPrimerTramo;
 use App\Shared\Enums\_Generic\Periodo;
+use App\Shared\Enums\ContabilidadCompra\EstadoComprobanteCompra;
 use App\Shared\Helpers\CorrelativoHelper;
 use Illuminate\Support\Facades\DB;
 
@@ -292,16 +294,38 @@ class ProgramacionDespachosData
     }
 
     /**
-     * Listar lotes y blendings con peso_actual > 0 que aún NO han sido despachados.
-     * Excluye los que ya están en un despacho_detalle cuyo despacho NO está anulado.
+     * Listar lotes y blendings disponibles para despacho.
+     *
+     * Reglas para LOTES:
+     *   - LOTE sin particiones: debe tener una `lote_guia` directa (no a partición)
+     *     apuntando a una `guia_primer_tramo` no anulada.
+     *   - El lote debe estar valorizado en al menos un elemento: la cadena
+     *     `valorizacion_compramineral_detalle → valorizacion_compra → comprobante_compra`
+     *     debe tener al menos un comprobante con `estado <> 'Anulado'`
+     *     (EnEspera, EnProceso o Pagado).
+     *   - Ninguno de los comprobantes vinculados al lote (directos o por
+     *     particiones) puede estar en estado 'Anulado'. Esto se valida con
+     *     un `NOT EXISTS` que recorre TODAS las valorizaciones del lote.
+     *   - LOTE con particiones: TODAS las particiones activas deben tener una
+     *     `lote_guia` apuntando a una `guia_primer_tramo` no anulada (validado
+     *     con `NOT EXISTS` separado, ya no con HAVING COUNT). Ademas requiere
+     *     al menos una valorizacion con comprobante no-anulado (a nivel del lote,
+     *     no de cada particion).
+     *   - `peso_neto` devuelto es SIEMPRE `peso_neto_oficial` (sin fallback a
+     *     `peso_neto`).
+     *
+     * Reglas para BLENDING (sin cambios):
+     *   - Cualquier blending con `peso_actual > 0`.
+     *
+     * NO se excluyen lotes ya despachados (la regla original del docblock
+     * sobre `despacho_detalle` con despacho no anulado queda comentada en este
+     * modulo hasta que se requiera).
      *
      * @return array<int, object>
      */
     public static function get_items_disponibles(): array
     {
-        $estadoGuiaActivo = EstadoBase::Activo->value;
-
-        $sqlLotes = '
+        $sqlLotesSinParticion = '
         SELECT
             "LOTE" AS tipo_item,
             lm.id AS id_lote_mineral,
@@ -310,15 +334,110 @@ class ProgramacionDespachosData
             lm.numero_correlativo,
             lm.tipo_producto,
             lm.tipo_mineral,
-            lm.peso_neto,
+            lm.peso_neto_oficial AS peso_neto,
             lm.peso_actual,
             lm.created_at,
             pr.razon_social AS proveedor_razon_social
         FROM lote_mineral lm
+        INNER JOIN lote_guia lg
+            ON lg.id_lote_mineral = lm.id
+            AND lg.id_particion_lote_mineral IS NULL
+        INNER JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
+        INNER JOIN valorizacion_compramineral_detalle vcd ON vcd.id_lote_guia = lg.id
+        INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+        INNER JOIN comprobante_compra cc ON cc.id_valorizacion_compra = vc.id
         LEFT JOIN proveedor pr ON pr.id = lm.id_proveedor_minero
-        WHERE lm.peso_actual > 0
+        WHERE lm.tiene_particion = 0
+          AND lm.peso_actual > 0
           AND lm.esta_validado = 1
-          AND lm.estado = :estado_activo
+          AND lm.estado = :estado_activo_lote
+          AND COALESCE(gpt.estado, :estado_activo_gpt) <> :estado_anulado
+          AND cc.estado <> :estado_anulado_comprobante
+          AND lm.peso_neto_oficial IS NOT NULL
+          AND lm.peso_neto_oficial > 0
+          AND NOT EXISTS (
+              SELECT 1
+              FROM valorizacion_compramineral_detalle vcd2
+              INNER JOIN valorizacion_compra vc2 ON vc2.id = vcd2.id_valorizacion_compra
+              INNER JOIN comprobante_compra cc2 ON cc2.id_valorizacion_compra = vc2.id
+              INNER JOIN lote_guia lg2 ON lg2.id = vcd2.id_lote_guia
+              WHERE lg2.id_lote_mineral = lm.id
+                AND cc2.estado = :estado_anulado_comprobante_subq
+          )
+        GROUP BY lm.id
+        ';
+
+        $sqlLotesConParticion = '
+        SELECT
+            "LOTE" AS tipo_item,
+            lm.id AS id_lote_mineral,
+            NULL AS id_blending,
+            lm.correlativo,
+            lm.numero_correlativo,
+            lm.tipo_producto,
+            lm.tipo_mineral,
+            lm.peso_neto_oficial AS peso_neto,
+            lm.peso_actual,
+            lm.created_at,
+            pr.razon_social AS proveedor_razon_social
+        FROM lote_mineral lm
+        INNER JOIN lote_guia lg
+            ON (lg.id_lote_mineral = lm.id)
+            OR (lg.id_particion_lote_mineral IN (
+                SELECT p_all.id
+                FROM particion_lote_mineral p_all
+                WHERE p_all.id_lote_mineral = lm.id
+                  AND p_all.estado = :estado_activo_part_in
+            ))
+        INNER JOIN guia_primer_tramo gpt ON gpt.id = lg.id_guia_primer_tramo
+        INNER JOIN valorizacion_compramineral_detalle vcd ON vcd.id_lote_guia = lg.id
+        INNER JOIN valorizacion_compra vc ON vc.id = vcd.id_valorizacion_compra
+        INNER JOIN comprobante_compra cc ON cc.id_valorizacion_compra = vc.id
+        LEFT JOIN proveedor pr ON pr.id = lm.id_proveedor_minero
+        WHERE lm.tiene_particion = 1
+          AND lm.peso_actual > 0
+          AND lm.esta_validado = 1
+          AND lm.estado = :estado_activo_lote
+          AND COALESCE(gpt.estado, :estado_activo_gpt) <> :estado_anulado
+          AND cc.estado <> :estado_anulado_comprobante
+          AND lm.peso_neto_oficial IS NOT NULL
+          AND lm.peso_neto_oficial > 0
+          -- (1) TODAS las particiones activas deben tener al menos una lote_guia
+          --     con guia_primer_tramo no anulada.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM particion_lote_mineral p
+              WHERE p.id_lote_mineral = lm.id
+                AND p.estado = :estado_activo_part_count_subq1
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM lote_guia lg_check
+                    INNER JOIN guia_primer_tramo gpt_check
+                        ON gpt_check.id = lg_check.id_guia_primer_tramo
+                    WHERE lg_check.id_particion_lote_mineral = p.id
+                      AND COALESCE(gpt_check.estado, :estado_activo_gpt_subq) <> :estado_anulado_subq
+                )
+          )
+          -- (2) Ningun comprobante vinculado al lote (directo o por particion)
+          --     puede estar en estado Anulado.
+          AND NOT EXISTS (
+              SELECT 1
+              FROM valorizacion_compramineral_detalle vcd2
+              INNER JOIN valorizacion_compra vc2 ON vc2.id = vcd2.id_valorizacion_compra
+              INNER JOIN comprobante_compra cc2 ON cc2.id_valorizacion_compra = vc2.id
+              INNER JOIN lote_guia lg2 ON lg2.id = vcd2.id_lote_guia
+              WHERE (
+                  lg2.id_lote_mineral = lm.id
+                  OR lg2.id_particion_lote_mineral IN (
+                      SELECT p_all.id
+                      FROM particion_lote_mineral p_all
+                      WHERE p_all.id_lote_mineral = lm.id
+                        AND p_all.estado = :estado_activo_part_count_subq2
+                  )
+              )
+              AND cc2.estado = :estado_anulado_comprobante_subq
+          )
+        GROUP BY lm.id
         ';
 
         $sqlBlendings = '
@@ -338,9 +457,44 @@ class ProgramacionDespachosData
         WHERE b.peso_actual > 0
         ';
 
+        $estadoActivo = EstadoBase::Activo->value;
+        $estadoAnulado = EstadoGuiaPrimerTramo::Anulado->value;
+        $estadoAnuladoComprobante = EstadoComprobanteCompra::Anulado->value;
+
+        $paramsLotesSinParticion = [
+            'estado_activo_lote' => $estadoActivo,
+            'estado_activo_gpt' => $estadoActivo,
+            'estado_anulado' => $estadoAnulado,
+            'estado_anulado_comprobante' => $estadoAnuladoComprobante,
+            'estado_anulado_comprobante_subq' => $estadoAnuladoComprobante,
+        ];
+
+        $paramsLotesConParticion = [
+            'estado_activo_part_in' => $estadoActivo,
+            'estado_activo_lote' => $estadoActivo,
+            'estado_activo_gpt' => $estadoActivo,
+            'estado_activo_gpt_subq' => $estadoActivo,
+            'estado_activo_part_count_subq1' => $estadoActivo,
+            'estado_activo_part_count_subq2' => $estadoActivo,
+            'estado_anulado' => $estadoAnulado,
+            'estado_anulado_subq' => $estadoAnulado,
+            'estado_anulado_comprobante' => $estadoAnuladoComprobante,
+            'estado_anulado_comprobante_subq' => $estadoAnuladoComprobante,
+        ];
+
         $results = [];
 
-        foreach (DB::select($sqlLotes, ['estado_activo' => $estadoGuiaActivo]) as $row) {
+        foreach (DB::select($sqlLotesSinParticion, $paramsLotesSinParticion) as $row) {
+            $row->id_lote_mineral = (int) $row->id_lote_mineral;
+            $row->id_blending = null;
+            $row->numero_correlativo = (int) $row->numero_correlativo;
+            $row->peso_neto = (float) $row->peso_neto;
+            $row->peso_actual = (float) $row->peso_actual;
+            $row->id = (int) $row->id_lote_mineral;
+            $results[] = (array) $row;
+        }
+
+        foreach (DB::select($sqlLotesConParticion, $paramsLotesConParticion) as $row) {
             $row->id_lote_mineral = (int) $row->id_lote_mineral;
             $row->id_blending = null;
             $row->numero_correlativo = (int) $row->numero_correlativo;
@@ -682,18 +836,24 @@ class ProgramacionDespachosData
                 ddt.peso_bruto,
                 ddt.fecha_hora_peso_bruto,
                 ddt.peso_neto,
+                ddt.peso_tara_confirmado,
+                ddt.peso_bruto_confirmado,
                 dd.id_lote_mineral AS detalle_id_lote_mineral,
                 dd.id_blending AS detalle_id_blending,
                 lm.correlativo AS lote_correlativo,
                 lm.ley_humedad AS lote_ley_humedad,
-                b.correlativo AS blending_correlativo
+                b.correlativo AS blending_correlativo,
+                b.ley_humedad AS blending_ley_humedad,
+                COALESCE(p.razon_social, \'—\') AS proveedor_razon_social
             FROM distribucion_detalle ddt
             INNER JOIN despacho_detalle dd ON dd.id = ddt.id_despacho_detalle
             LEFT JOIN lote_mineral lm ON lm.id = dd.id_lote_mineral
+            LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
             LEFT JOIN blending b ON b.id = dd.id_blending
             WHERE ddt.id = :id
             LIMIT 1
         ';
+
         $row = DB::selectOne($sql, ['id' => $idDetalle]);
 
         return $row ? (array) $row : null;
@@ -703,13 +863,27 @@ class ProgramacionDespachosData
      * Actualizar el pesaje (tara/bruto/neto) de un detalle de distribución.
      * Acepta guardados parciales: cualquier parámetro nullable se conserva con su valor actual
      * (mientras que los no-nullable se actualizan + actualizan su fecha correspondiente).
+     *
+     * Flags de confirmacion:
+     *   - $confirmarTara = true  -> marca tara confirmada (pisa).
+     *   - $confirmarTara = false -> desmarca tara + cascade reset del bruto.
+     *   - $confirmarBruto = true  -> marca bruto confirmado (pisa).
+     *   - $confirmarBruto = false -> desmarca bruto (sin cascade).
+     *
+     * Cascade (al cambiar o desconfirmar tara):
+     *   - Reset peso_bruto = NULL
+     *   - Reset fecha_hora_peso_bruto = NULL
+     *   - Reset peso_neto = NULL
+     *   - Reset peso_bruto_confirmado = false
      */
     public static function update_detalle_pesaje(
         int $idDetalle,
         ?int $idTicketBalanza,
         ?float $pesoTara,
         ?float $pesoBruto,
-        ?float $pesoNeto
+        ?float $pesoNeto,
+        ?bool $confirmarTara = null,
+        ?bool $confirmarBruto = null
     ): bool {
         // Construir SET dinámico: cada campo no-nullable pisa valor + fecha.
         $sets = ['id_ticket_balanza = ?'];
@@ -728,6 +902,29 @@ class ProgramacionDespachosData
         if ($pesoNeto !== null) {
             $sets[] = 'peso_neto = ?';
             $params[] = round($pesoNeto, 3);
+        }
+
+        // Flags de confirmación (si vienen explícitos).
+        if ($confirmarTara === true) {
+            $sets[] = 'peso_tara_confirmado = 1';
+        } elseif ($confirmarTara === false) {
+            $sets[] = 'peso_tara_confirmado = 0';
+        }
+        if ($confirmarBruto === true) {
+            $sets[] = 'peso_bruto_confirmado = 1';
+        } elseif ($confirmarBruto === false) {
+            $sets[] = 'peso_bruto_confirmado = 0';
+        }
+
+        // Cascade: si tara cambia de valor o se desconfirma, el bruto y neto
+        // quedan stale -> reset.
+        $taraChanged = $pesoTara !== null;
+        $taraUnconfirmed = $confirmarTara === false;
+        if ($taraChanged || $taraUnconfirmed) {
+            $sets[] = 'peso_bruto = NULL';
+            $sets[] = 'fecha_hora_peso_bruto = NULL';
+            $sets[] = 'peso_neto = NULL';
+            $sets[] = 'peso_bruto_confirmado = 0';
         }
 
         $params[] = $idDetalle;

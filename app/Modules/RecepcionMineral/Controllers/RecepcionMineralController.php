@@ -100,7 +100,7 @@ class RecepcionMineralController extends Controller
             'numero_contacto' => 'nullable|string|max:50',
             'tipo_producto' => 'required|string|max:100',
             'tipo_mineral' => 'required|string|max:100',
-            'peso_inicial' => 'required|numeric|min:0.01',
+            'peso_inicial' => 'required|numeric|gt:0',
             'observacion_peso_inicial' => 'nullable|string',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
@@ -133,7 +133,7 @@ class RecepcionMineralController extends Controller
     public function registrar_peso_final(Request $request, int $loteId): JsonResponse
     {
         $request->validate([
-            'peso_final' => 'required|numeric|min:0.01',
+            'peso_final' => 'required|numeric|gt:0',
             'observacion_peso_final' => 'nullable|string',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
@@ -143,7 +143,7 @@ class RecepcionMineralController extends Controller
             'numero_contacto' => 'nullable|string|max:50',
             'tipo_producto' => 'nullable|string|max:100',
             'tipo_mineral' => 'nullable|string|max:100',
-            'peso_inicial' => 'nullable|numeric|min:0.01',
+            'peso_inicial' => 'nullable|numeric|gt:0',
             'observacion_peso_inicial' => 'nullable|string',
             'id_vehiculo' => 'nullable|integer|exists:vehiculo,id',
             'id_empresa_transporte' => 'nullable|integer|exists:empresa_transporte,id',
@@ -198,7 +198,7 @@ class RecepcionMineralController extends Controller
             'fecha_fin' => $request->query('fecha_fin'),
             'tipo_ingreso' => $request->query('tipo_ingreso'),
             'placa' => $request->query('placa'),
-            'id_lote_mineral' => $request->query('id_lote_mineral'),
+            'lote_correlativo' => $request->query('lote_correlativo'),
             'id_empresa_transporte' => $request->query('id_empresa_transporte'),
         ];
 
@@ -281,5 +281,14 @@ class RecepcionMineralController extends Controller
     public function get_ticket_balanza(int $loteId): JsonResponse
     {
         return response()->json(RecepcionMineralService::get_ticket_balanza($loteId));
+    }
+
+    /**
+     * Obtener datos para la impresión del Ticket de Balanza PDF a partir de un
+     * id de distribucion_detalle (filas del Bloque B del Resumen de Balanza).
+     */
+    public function get_ticket_balanza_by_distribucion_detalle(int $idDistribucionDetalle): JsonResponse
+    {
+        return response()->json(RecepcionMineralService::get_ticket_balanza_by_distribucion_detalle($idDistribucionDetalle));
     }
 }

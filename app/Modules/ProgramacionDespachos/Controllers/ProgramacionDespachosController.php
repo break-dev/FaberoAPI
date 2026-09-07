@@ -171,12 +171,18 @@ class ProgramacionDespachosController extends Controller
     /**
      * Registrar pesaje (tara/bruto/neto) de un detalle de distribución.
      * Soporta guardados parciales: solo tara, solo bruto, o ambos.
+     *
+     * Flags opcionales:
+     *   - confirmar_tara: bool. true bloquea, false desbloquea (cascade reset del bruto).
+     *   - confirmar_bruto: bool. true bloquea, false desbloquea.
      */
     public function pesar_distribucion_detalle(Request $request, int $id, int $idDetalle): JsonResponse
     {
         $validator = Validator::make($request->all(), [
             'peso_tara' => 'nullable|numeric|gt:0',
             'peso_bruto' => 'nullable|numeric|gt:0',
+            'confirmar_tara' => 'nullable|boolean',
+            'confirmar_bruto' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -189,14 +195,16 @@ class ProgramacionDespachosController extends Controller
         }
 
         $validated = $validator->validated();
-        $pesoTara = array_key_exists('peso_tara', $validated) ? $validated['peso_tara'] : null;
-        $pesoBruto = array_key_exists('peso_bruto', $validated) ? $validated['peso_bruto'] : null;
+        $payload = [];
+        foreach (['peso_tara', 'peso_bruto', 'confirmar_tara', 'confirmar_bruto'] as $key) {
+            $payload[$key] = array_key_exists($key, $validated) ? $validated[$key] : null;
+        }
 
         return response()->json(
             ProgramacionDespachosService::pesar_distribucion_detalle(
                 $id,
                 $idDetalle,
-                ['peso_tara' => $pesoTara, 'peso_bruto' => $pesoBruto],
+                $payload,
                 (int) $authUser->id_empleado
             )
         );

@@ -4,6 +4,7 @@ namespace App\Modules\GuiasPrimerTramo\Services;
 
 use App\Modules\GuiasPrimerTramo\Data\GuiasPrimerTramoData;
 use App\Shared\Enums\_Generic\EstadoBase;
+use App\Shared\Enums\_Generic\EstadoGuiaPrimerTramo;
 use App\Shared\Helpers\ArchivoHelper;
 use App\Shared\Responses\_Generic\RES_CambiosLog;
 use App\Shared\Responses\ApiResponse;
@@ -333,7 +334,10 @@ class GuiasPrimerTramoService
             if (! $lote || ! (int) ($lote->tiene_particion ?? 0)) {
                 continue;
             }
-            if ($lote->peso_neto_oficial !== null) {
+            // El cast a (float) cubre null, "0", "0.00", "0.0", 0, 0.0 — todos evalúan
+            // a 0.0 y la guarda deja pasar el UPDATE. Solo saltamos si hay un valor
+            // real (>0) ya seteado (auditoría / idempotencia).
+            if ((float) $lote->peso_neto_oficial > 0) {
                 continue;
             }
             DB::table('lote_mineral')->where('id', $idLote)->update([
@@ -420,7 +424,7 @@ class GuiasPrimerTramoService
                 'sin_guia_transportista' => $sinGuiaTransportista,
                 'documentos' => json_encode($documentos),
                 'id_empleado_registro' => $idEmpleadoRegistro,
-                'estado' => EstadoBase::Activo->value,
+                'estado' => EstadoGuiaPrimerTramo::Activo->value,
                 'created_at' => now()->toDateTimeString(),
             ];
 
@@ -984,7 +988,7 @@ class GuiasPrimerTramoService
             }
 
             DB::table('guia_primer_tramo')->where('id', $id)->update([
-                'estado' => EstadoBase::Inactivo->value,
+                'estado' => EstadoGuiaPrimerTramo::Anulado->value,
             ]);
 
             DB::commit();

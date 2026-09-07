@@ -81,8 +81,9 @@ class BlendingController extends Controller
                 'observacion' => 'nullable|string',
                 'evidencias' => 'nullable|array',
                 'evidencias.*' => 'file',
+                'id_empresa' => 'nullable|integer|exists:empresa,id',
                 'detalles' => 'required|array|min:1',
-                'detalles.*.id_lote_guia' => 'nullable|integer',
+                'detalles.*.id_lote_mineral' => 'nullable|integer',
                 'detalles.*.id_reblending' => 'nullable|integer',
                 'detalles.*.peso_tomado' => 'required|numeric|gt:0',
             ]);
@@ -130,7 +131,7 @@ class BlendingController extends Controller
                 'nombres_evidencias_eliminadas.*' => 'string',
                 'adiciones' => 'nullable|array',
                 'adiciones.*.id_detalle' => 'nullable|integer',
-                'adiciones.*.id_lote_guia' => 'nullable|integer',
+                'adiciones.*.id_lote_mineral' => 'nullable|integer',
                 'adiciones.*.id_reblending' => 'nullable|integer',
                 'adiciones.*.peso_adicional' => 'required_with:adiciones|numeric|gt:0',
             ]);

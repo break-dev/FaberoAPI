@@ -241,20 +241,28 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró el registro de lote.');
         }
 
-        $lote->estado = EstadoBase::Eliminado->value;
+        $lote->estado = EstadoBase::Eliminado;
         $lote->save();
 
         return ApiResponse::success(null, 'Lote eliminado correctamente.');
     }
 
     /**
-     * Registrar la información del peso inicial de un lote
+     * Registrar la información del peso inicial de un lote.
      */
     public static function registrar_peso_inicial(int $loteId, array $data, array $archivos): array
     {
         $lote = LoteMineral::find($loteId);
         if (! $lote) {
             return ApiResponse::error('No se encontró el registro de lote.');
+        }
+
+        $pesoInicialInput = array_key_exists('peso_inicial', $data) && $data['peso_inicial'] !== null
+            ? (float) $data['peso_inicial']
+            : null;
+
+        if ($pesoInicialInput === null || $pesoInicialInput <= 0) {
+            return ApiResponse::error('Debe registrar un peso inicial válido y mayor a cero.', 422);
         }
 
         // Guardar los archivos de evidencias físicas en storage/app/public/lotes
@@ -268,7 +276,7 @@ class RecepcionMineralService
         $lote->numero_contacto = $data['numero_contacto'];
         $lote->tipo_producto = $data['tipo_producto'];
         $lote->tipo_mineral = $data['tipo_mineral'];
-        $lote->peso_inicial = (float) $data['peso_inicial'];
+        $lote->peso_inicial = $pesoInicialInput;
         $lote->fecha_hora_peso_inicial = now()->toDateTimeString();
         $lote->evidencias = $evidenciasGuardadas;
 
@@ -313,7 +321,23 @@ class RecepcionMineralService
     }
 
     /**
-     * Registrar la información del peso final de un lote
+     * Obtener los datos completos del ticket de balanza partiendo de un id de
+     * distribucion_detalle. Se usa para imprimir el ticket de las filas del Bloque B
+     * (Despacho de Mineral) del Resumen de Balanza, incluyendo despachos cuyo origen
+     * es un blending.
+     */
+    public static function get_ticket_balanza_by_distribucion_detalle(int $idDistribucionDetalle): array
+    {
+        $data = RecepcionMineralData::get_ticket_balanza_info_by_distribucion_detalle($idDistribucionDetalle);
+        if (! $data) {
+            return ApiResponse::error('No se encontró la información del ticket para el detalle de distribución especificado.');
+        }
+
+        return ApiResponse::success($data, 'Ticket de balanza obtenido correctamente.');
+    }
+
+    /**
+     * Registrar la información del peso final de un lote.
      */
     public static function registrar_peso_final(int $loteId, array $data, array $archivos): array
     {
@@ -322,7 +346,15 @@ class RecepcionMineralService
             return ApiResponse::error('No se encontró el registro de lote.');
         }
 
-        if ($lote->peso_inicial === null && ! isset($data['peso_inicial'])) {
+        $pesoFinalInput = array_key_exists('peso_final', $data) && $data['peso_final'] !== null
+            ? (float) $data['peso_final']
+            : null;
+
+        if ($pesoFinalInput === null || $pesoFinalInput <= 0) {
+            return ApiResponse::error('Debe registrar un peso final válido y mayor a cero.', 422);
+        }
+
+        if ($lote->peso_inicial === null && ! isset($data['peso_inicial']) && $pesoFinalInput !== null) {
             return ApiResponse::error('Debe registrar primero el peso inicial del lote.');
         }
 
@@ -361,7 +393,7 @@ class RecepcionMineralService
             $lote->peso_inicial = (float) $data['peso_inicial'];
         }
 
-        $pesoFinal = (float) $data['peso_final'];
+        $pesoFinal = $pesoFinalInput;
         $pesoInicial = (float) $lote->peso_inicial;
 
         $lote->peso_final = $pesoFinal;
@@ -414,8 +446,8 @@ class RecepcionMineralService
             }
 
             foreach ($detalles as $detalle) {
-                if ($detalle->peso_neto === null) {
-                    return ApiResponse::error('Faltan detalles por pesar (peso_neto NULL).');
+                if ($detalle->peso_neto === null || ! $detalle->peso_tara_confirmado || ! $detalle->peso_bruto_confirmado) {
+                    return ApiResponse::error('Todos los detalles de distribución deben tener la tara y el bruto confirmados.');
                 }
             }
         } else {

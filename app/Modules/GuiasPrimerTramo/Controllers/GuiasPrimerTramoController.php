@@ -91,11 +91,96 @@ class GuiasPrimerTramoController extends Controller
         }
 
         $errors = $result['errors'] ?? null;
-        if (is_array($errors) && isset($errors['codigo']) && $errors['codigo'] === 'GUIA_DUPLICADA') {
+        if (is_array($errors) && isset($errors['codigo']) && in_array($errors['codigo'], ['GUIA_DUPLICADA', 'PROVEEDOR_ITEM_INCONSISTENTE'], true)) {
             return 422;
         }
 
         return 200;
+    }
+
+    /**
+     * Valida que cada item (lote o particion) pertenezca al proveedor declarado
+     * en la cabecera de la guia. Para PARTICION, hereda el `id_proveedor_minero`
+     * del lote padre (la particion no tiene campo propio).
+     *
+     * Devuelve `null` si todos los items son consistentes, o un payload listo
+     * para `ApiResponse::error()` con codigo `PROVEEDOR_ITEM_INCONSISTENTE`
+     * cuando alguno difiere.
+     *
+     * @param  array<int, array{id_lote_mineral?: mixed, id_particion_lote_mineral?: mixed}>  $items
+     * @return array{codigo: string, mensaje: string, idx: int}|null
+     */
+    private function validar_proveedor_items(array $items, int $idProveedorDeclarado): ?array
+    {
+        foreach ($items as $idx => $item) {
+            $idLote = $item['id_lote_mineral'] ?? null;
+            $idPart = $item['id_particion_lote_mineral'] ?? null;
+
+            $hasLote = $idLote !== null && $idLote !== '' && is_numeric($idLote);
+            $hasPart = $idPart !== null && $idPart !== '' && is_numeric($idPart);
+
+            if ($hasLote) {
+                $row = DB::table('lote_mineral')
+                    ->select('id_proveedor_minero', 'correlativo')
+                    ->where('id', (int) $idLote)
+                    ->first();
+                if (! $row) {
+                    continue;
+                }
+                $proveedorItem = $row->id_proveedor_minero !== null ? (int) $row->id_proveedor_minero : null;
+                $correlativo = $row->correlativo ?: "Lote #{$idLote}";
+
+                if ($proveedorItem !== $idProveedorDeclarado) {
+                    $proveedorLabel = $proveedorItem !== null
+                        ? $this->resolver_nombre_proveedor($proveedorItem)
+                        : 'sin proveedor asignado';
+
+                    return [
+                        'codigo' => 'PROVEEDOR_ITEM_INCONSISTENTE',
+                        'mensaje' => "Item {$idx} ({$correlativo}) pertenece al proveedor '{$proveedorLabel}', no se puede asociar a una guía del proveedor seleccionado.",
+                        'idx' => $idx,
+                    ];
+                }
+            }
+
+            if ($hasPart) {
+                $row = DB::table('particion_lote_mineral as plm')
+                    ->join('lote_mineral as lm', 'lm.id', '=', 'plm.id_lote_mineral')
+                    ->select('lm.id_proveedor_minero', 'plm.correlativo')
+                    ->where('plm.id', (int) $idPart)
+                    ->first();
+                if (! $row) {
+                    continue;
+                }
+                $proveedorItem = $row->id_proveedor_minero !== null ? (int) $row->id_proveedor_minero : null;
+                $correlativo = $row->correlativo ?: "Partición #{$idPart}";
+
+                if ($proveedorItem !== $idProveedorDeclarado) {
+                    $proveedorLabel = $proveedorItem !== null
+                        ? $this->resolver_nombre_proveedor($proveedorItem)
+                        : 'sin proveedor asignado';
+
+                    return [
+                        'codigo' => 'PROVEEDOR_ITEM_INCONSISTENTE',
+                        'mensaje' => "Item {$idx} ({$correlativo}) pertenece al proveedor '{$proveedorLabel}', no se puede asociar a una guía del proveedor seleccionado.",
+                        'idx' => $idx,
+                    ];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resuelve la razon social de un proveedor por id. Devuelve `ID #N` si no
+     * se encuentra en BD.
+     */
+    private function resolver_nombre_proveedor(int $idProveedor): string
+    {
+        $row = DB::table('proveedor')->select('razon_social')->where('id', $idProveedor)->first();
+
+        return $row && $row->razon_social ? $row->razon_social : "ID #{$idProveedor}";
     }
 
     /**
@@ -188,6 +273,18 @@ class GuiasPrimerTramoController extends Controller
                     return response()->json(ApiResponse::error("Item {$idx}: id_particion_lote_mineral no existe o fue eliminada."), 422);
                 }
             }
+        }
+
+        // Validar que todos los items pertenezcan al proveedor declarado en la
+        // cabecera. Para PARTICION se valida via JOIN con `lote_mineral` porque
+        // la particion hereda el proveedor del padre.
+        $idProveedorDeclarado = (int) $request->input('id_proveedor');
+        $inconsistencia = $this->validar_proveedor_items($lotes, $idProveedorDeclarado);
+        if ($inconsistencia !== null) {
+            return response()->json(
+                ApiResponse::error($inconsistencia['mensaje'], ['codigo' => $inconsistencia['codigo']]),
+                422,
+            );
         }
 
         $data = [
@@ -327,6 +424,19 @@ class GuiasPrimerTramoController extends Controller
                     }
                 }
             }
+        }
+
+        // Validar que todos los items (historicos y nuevos) pertenezcan al
+        // proveedor declarado. Aplica sobre el array completo enviado por el
+        // frontend; los items que el operador quiere desvincular llegan
+        // simplemente omitidos en `lotes`, asi que no estan en este array.
+        $idProveedorDeclarado = (int) $request->input('id_proveedor');
+        $inconsistencia = $this->validar_proveedor_items($lotes, $idProveedorDeclarado);
+        if ($inconsistencia !== null) {
+            return response()->json(
+                ApiResponse::error($inconsistencia['mensaje'], ['codigo' => $inconsistencia['codigo']]),
+                422,
+            );
         }
 
         $data = [

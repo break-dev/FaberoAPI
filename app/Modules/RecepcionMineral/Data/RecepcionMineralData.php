@@ -193,6 +193,8 @@ class RecepcionMineralData
             lm.id_proveedor_minero,
             p.razon_social AS proveedor_nombre,
             p.telefono AS proveedor_telefono,
+            ru.id_proveedor_minero AS id_proveedor_minero_recepcion,
+            pr.razon_social AS proveedor_nombre_recepcion,
             lm.id_empleado_registro,
             CONCAT(emp.nombre, " ", emp.apellido) AS empleado_registro_nombre,
             lm.id_zona_origen,
@@ -230,6 +232,7 @@ class RecepcionMineralData
         INNER JOIN empleado emp ON emp.id = lm.id_empleado_registro
         LEFT JOIN empresa emp_tit ON emp_tit.id = lm.id_empresa
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
+        LEFT JOIN proveedor pr ON pr.id = ru.id_proveedor_minero
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
         LEFT JOIN vehiculo v_lote ON v_lote.id = ru.id_vehiculo
         LEFT JOIN empresa_transporte et_lote ON et_lote.id = ru.id_empresa_transporte
@@ -277,6 +280,8 @@ class RecepcionMineralData
             lm.id_proveedor_minero,
             p.razon_social AS proveedor_nombre,
             p.telefono AS proveedor_telefono,
+            ru.id_proveedor_minero AS id_proveedor_minero_recepcion,
+            pr.razon_social AS proveedor_nombre_recepcion,
             lm.id_empleado_registro,
             CONCAT(emp.nombre, " ", emp.apellido) AS empleado_registro_nombre,
             lm.id_zona_origen,
@@ -315,6 +320,7 @@ class RecepcionMineralData
         INNER JOIN empleado emp ON emp.id = lm.id_empleado_registro
         LEFT JOIN empresa emp_tit ON emp_tit.id = lm.id_empresa
         LEFT JOIN proveedor p ON p.id = lm.id_proveedor_minero
+        LEFT JOIN proveedor pr ON pr.id = ru.id_proveedor_minero
         LEFT JOIN zona_origen zo ON zo.id = lm.id_zona_origen
         LEFT JOIN vehiculo v_lote ON v_lote.id = ru.id_vehiculo
         LEFT JOIN empresa_transporte et_lote ON et_lote.id = ru.id_empresa_transporte
@@ -496,6 +502,9 @@ class RecepcionMineralData
             p.id                                       AS id_proveedor,
             p.razon_social                             AS proveedor_razon_social,
 
+            ru.id_proveedor_minero                     AS id_proveedor_minero_recepcion,
+            pr.razon_social                            AS proveedor_nombre_recepcion,
+
             zo.id                                      AS id_zona_origen,
             zo.nombre                                  AS zona_origen_nombre,
 
@@ -515,6 +524,7 @@ class RecepcionMineralData
         LEFT JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv    ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN proveedor p        ON p.id = lm.id_proveedor_minero
+        LEFT JOIN proveedor pr       ON pr.id = ru.id_proveedor_minero
         LEFT JOIN zona_origen zo     ON zo.id = lm.id_zona_origen
         LEFT JOIN conductor c        ON c.id = ru.id_conductor
         LEFT JOIN empleado emp_reg   ON emp_reg.id = lm.id_empleado_registro
@@ -617,6 +627,9 @@ class RecepcionMineralData
             p_origen.id                                AS id_proveedor,
             p_origen.razon_social                      AS proveedor_razon_social,
 
+            ru.id_proveedor_minero                     AS id_proveedor_minero_recepcion,
+            pr.razon_social                            AS proveedor_nombre_recepcion,
+
             zo_origen.id                               AS id_zona_origen,
             zo_origen.nombre                           AS zona_origen_nombre,
 
@@ -641,6 +654,7 @@ class RecepcionMineralData
         LEFT JOIN lote_mineral lm_origen     ON lm_origen.id = dd.id_lote_mineral
         LEFT JOIN blending b_origen          ON b_origen.id = dd.id_blending
         LEFT JOIN proveedor p_origen         ON p_origen.id = lm_origen.id_proveedor_minero
+        LEFT JOIN proveedor pr               ON pr.id = ru.id_proveedor_minero
         LEFT JOIN zona_origen zo_origen      ON zo_origen.id = lm_origen.id_zona_origen
         LEFT JOIN conductor c                ON c.id = ru.id_conductor
         LEFT JOIN empleado emp_reg           ON emp_reg.id = ru.id_empleado_recepcion

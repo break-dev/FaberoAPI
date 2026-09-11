@@ -28,10 +28,20 @@ class EmpresasService
 
     /**
      * Crear una nueva empresa
+     *
+     * @param  array{
+     *   ruc: string,
+     *   razon_social: string,
+     *   path_logo?: string|null,
+     *   id_departamento?: int|null,
+     *   id_provincia?: int|null,
+     *   id_distrito?: int|null,
+     *   domicilio_fiscal?: string|null
+     * }  $data
      */
-    public static function crear_empresa(string $ruc, string $razon_social, ?UploadedFile $logo = null)
+    public static function crear_empresa(array $data, ?UploadedFile $logo = null)
     {
-        if (EmpresasData::verificar_ruc_duplicado($ruc)) {
+        if (EmpresasData::verificar_ruc_duplicado($data['ruc'])) {
             return ApiResponse::error('Ya existe una empresa registrada con este RUC.');
         }
 
@@ -44,7 +54,9 @@ class EmpresasService
             }
         }
 
-        $id_empresa = EmpresasData::crear_empresa($ruc, $razon_social, $path_logo);
+        $data['path_logo'] = $path_logo;
+
+        $id_empresa = EmpresasData::crear_empresa($data);
         $nuevaEmpresa = EmpresasData::get_empresa_by_id($id_empresa);
 
         return ApiResponse::success($nuevaEmpresa, 'Empresa registrada correctamente');
@@ -71,5 +83,40 @@ class EmpresasService
         $empresa = EmpresasData::get_empresa_by_id($id_empresa);
 
         return ApiResponse::success($empresa, 'Logo de empresa actualizado correctamente');
+    }
+
+    /**
+     * Actualizar los datos de una empresa (sin logo).
+     *
+     * @param  array{
+     *   ruc?: string,
+     *   razon_social?: string,
+     *   id_departamento?: int|null,
+     *   id_provincia?: int|null,
+     *   id_distrito?: int|null,
+     *   domicilio_fiscal?: string|null
+     * }  $data
+     */
+    public static function actualizar_empresa(int $idEmpresa, array $data)
+    {
+        if (isset($data['ruc']) && EmpresasData::verificar_ruc_duplicado($data['ruc'], $idEmpresa)) {
+            return ApiResponse::error('Ya existe otra empresa registrada con este RUC.');
+        }
+
+        // Si viene RUC, lo actualizamos también.
+        if (array_key_exists('ruc', $data)) {
+            $data['ruc'] = $data['ruc'];
+        }
+
+        EmpresasData::actualizar_empresa($idEmpresa, $data);
+
+        // Si se actualizó el RUC, sincronizarlo aparte (actualizar_empresa no lo toca).
+        if (array_key_exists('ruc', $data)) {
+            \App\Models\Empresa::where('id', $idEmpresa)->update(['ruc' => $data['ruc']]);
+        }
+
+        $empresa = EmpresasData::get_empresa_by_id($idEmpresa);
+
+        return ApiResponse::success($empresa, 'Empresa actualizada correctamente');
     }
 }

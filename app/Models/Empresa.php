@@ -17,5 +17,9 @@ class Empresa extends Model
         'ruc',
         'razon_social',
         'path_logo',
+        'id_departamento',
+        'id_provincia',
+        'id_distrito',
+        'domicilio_fiscal',
     ];
 }

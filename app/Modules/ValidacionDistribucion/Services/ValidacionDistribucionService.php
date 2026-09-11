@@ -276,6 +276,7 @@ class ValidacionDistribucionService
             }
             $fechaIngreso = now()->toDateTimeString();
             $idVehiculo = null;
+            $idVehiculoCarreta = null;
             $idConductor = null;
             $idSucursal = $idSucursalPadre;
             $segundaPlaca = null;

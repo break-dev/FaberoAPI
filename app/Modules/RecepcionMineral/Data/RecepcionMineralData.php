@@ -29,7 +29,8 @@ class RecepcionMineralData
             CONCAT(c.nombre, " ", c.apellido) AS conductor_nombre_completo,
             c.dni AS conductor_dni,
             ru.tipo_ingreso,
-            ru.segunda_placa,
+            ru.id_vehiculo_carreta,
+            vc.placa AS vehiculo_carreta_placa,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
             ru.fecha_hora_inicio_pesaje,
@@ -47,6 +48,7 @@ class RecepcionMineralData
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
         LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+        LEFT JOIN vehiculo vc ON vc.id = ru.id_vehiculo_carreta
         LEFT JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN conductor c ON c.id = ru.id_conductor
@@ -368,7 +370,8 @@ class RecepcionMineralData
             CONCAT(c.nombre, " ", c.apellido) AS conductor_nombre_completo,
             c.dni AS conductor_dni,
             ru.tipo_ingreso,
-            ru.segunda_placa,
+            ru.id_vehiculo_carreta,
+            vc.placa AS vehiculo_carreta_placa,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
             ru.fecha_hora_inicio_pesaje,
@@ -386,6 +389,7 @@ class RecepcionMineralData
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
         LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+        LEFT JOIN vehiculo vc ON vc.id = ru.id_vehiculo_carreta
         LEFT JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN conductor c ON c.id = ru.id_conductor
@@ -476,7 +480,8 @@ class RecepcionMineralData
             ru.id                                      AS id_recepcion_unidad,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
-            ru.segunda_placa,
+            ru.id_vehiculo_carreta,
+            vc.placa                                   AS vehiculo_carreta_placa,
             ru.estado_pesaje,
 
             ru.id_vehiculo,
@@ -506,6 +511,7 @@ class RecepcionMineralData
         FROM lote_mineral lm
         INNER JOIN recepcion_unidad ru ON ru.id = lm.id_recepcion_unidad
         LEFT JOIN vehiculo v          ON v.id = ru.id_vehiculo
+        LEFT JOIN vehiculo vc         ON vc.id = ru.id_vehiculo_carreta
         LEFT JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv    ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN proveedor p        ON p.id = lm.id_proveedor_minero
@@ -595,7 +601,8 @@ class RecepcionMineralData
             ru.id                                      AS id_recepcion_unidad,
             ru.fecha_hora_ingreso,
             ru.fecha_hora_salida,
-            ru.segunda_placa,
+            ru.id_vehiculo_carreta,
+            vc.placa                                   AS vehiculo_carreta_placa,
             ru.estado_pesaje,
 
             ru.id_vehiculo,
@@ -628,6 +635,7 @@ class RecepcionMineralData
         INNER JOIN despacho_detalle dd       ON dd.id = ddt.id_despacho_detalle
         INNER JOIN recepcion_unidad ru       ON ru.id_distribucion = d.id
         LEFT JOIN vehiculo v                 ON v.id = ru.id_vehiculo
+        LEFT JOIN vehiculo vc                ON vc.id = ru.id_vehiculo_carreta
         LEFT JOIN empresa_transporte et      ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv           ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN lote_mineral lm_origen     ON lm_origen.id = dd.id_lote_mineral

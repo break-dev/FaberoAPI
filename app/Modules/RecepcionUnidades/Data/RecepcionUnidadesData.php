@@ -25,6 +25,8 @@ class RecepcionUnidadesData
             CONCAT(emp_reg.nombre, " ", emp_reg.apellido) AS empleado_registro_nombre,
             ru.id_vehiculo,
             v.placa AS vehiculo_placa,
+            ru.id_vehiculo_carreta,
+            vc.placa AS vehiculo_carreta_placa,
             ru.id_empresa_transporte,
             et.razon_social AS empresa_transporte_razon_social,
             ru.id_tipo_vehiculo,
@@ -34,7 +36,6 @@ class RecepcionUnidadesData
             c.dni AS conductor_dni,
             c.numero_licencia AS conductor_numero_licencia,
             ru.tipo_ingreso,
-            ru.segunda_placa,
             ru.fecha_hora_ingreso,
             ru.evidencias,
             ru.observacion,
@@ -60,6 +61,7 @@ ru.guia_remitente,
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
         LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+        LEFT JOIN vehiculo vc ON vc.id = ru.id_vehiculo_carreta
         INNER JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN conductor c ON c.id = ru.id_conductor
@@ -135,6 +137,8 @@ ru.guia_remitente,
             CONCAT(emp_reg.nombre, " ", emp_reg.apellido) AS empleado_registro_nombre,
             ru.id_vehiculo,
             v.placa AS vehiculo_placa,
+            ru.id_vehiculo_carreta,
+            vc.placa AS vehiculo_carreta_placa,
             ru.id_empresa_transporte,
             et.razon_social AS empresa_transporte_razon_social,
             ru.id_tipo_vehiculo,
@@ -144,7 +148,6 @@ ru.guia_remitente,
             c.dni AS conductor_dni,
             c.numero_licencia AS conductor_numero_licencia,
             ru.tipo_ingreso,
-            ru.segunda_placa,
             ru.fecha_hora_ingreso,
             ru.evidencias,
             ru.observacion,
@@ -172,6 +175,7 @@ ru.guia_remitente,
             recepcion_unidad ru
         LEFT JOIN empleado emp_reg ON emp_reg.id = ru.id_empleado_recepcion
         LEFT JOIN vehiculo v ON v.id = ru.id_vehiculo
+        LEFT JOIN vehiculo vc ON vc.id = ru.id_vehiculo_carreta
         INNER JOIN empresa_transporte et ON et.id = ru.id_empresa_transporte
         LEFT JOIN tipo_vehiculo tv ON tv.id = ru.id_tipo_vehiculo
         LEFT JOIN conductor c ON c.id = ru.id_conductor
@@ -317,12 +321,12 @@ ru.guia_remitente,
         $recepcion = RecepcionUnidad::create([
             'id_empleado_recepcion' => $data['id_empleado_registro'],
             'id_vehiculo' => $data['id_vehiculo'] ?? null,
+            'id_vehiculo_carreta' => $data['id_vehiculo_carreta'] ?? null,
             'id_empresa_transporte' => $data['id_empresa_transporte'],
             'id_tipo_vehiculo' => $data['id_tipo_vehiculo'],
             'id_conductor' => $data['id_conductor'],
             'id_proveedor_minero' => $data['id_proveedor_minero'] ?? null,
             'tipo_ingreso' => $data['tipo_ingreso'] ?? 'Recepción de Mineral',
-            'segunda_placa' => $data['segunda_placa'] ?? null,
             'fecha_hora_ingreso' => now()->toDateTimeString(),
             'evidencias' => $data['evidencias'] ?? [],
             'observacion' => $data['observacion'] ?? null,

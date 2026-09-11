@@ -42,12 +42,12 @@ class RecepcionUnidadesController extends Controller
     {
         $request->validate([
             'id_vehiculo' => 'nullable|integer|exists:vehiculo,id',
+            'id_vehiculo_carreta' => 'nullable|integer|exists:vehiculo,id',
             'id_empresa_transporte' => 'required|integer|exists:empresa_transporte,id',
             'id_tipo_vehiculo' => 'required|integer|exists:tipo_vehiculo,id',
             'id_conductor' => 'required|integer|exists:conductor,id',
             'id_proveedor_minero' => 'nullable|integer|exists:proveedor,id',
             'tipo_ingreso' => 'nullable|string|max:50',
-            'segunda_placa' => 'nullable|string|max:15',
             'observacion' => 'nullable|string',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
@@ -76,12 +76,12 @@ class RecepcionUnidadesController extends Controller
         $data = [
             'id_empleado_registro' => (int) $authUser->id_empleado,
             'id_vehiculo' => $request->input('id_vehiculo') ? (int) $request->input('id_vehiculo') : null,
+            'id_vehiculo_carreta' => $request->input('id_vehiculo_carreta') ? (int) $request->input('id_vehiculo_carreta') : null,
             'id_empresa_transporte' => (int) $request->input('id_empresa_transporte'),
             'id_tipo_vehiculo' => (int) $request->input('id_tipo_vehiculo'),
             'id_conductor' => (int) $request->input('id_conductor'),
             'id_proveedor_minero' => $request->input('id_proveedor_minero') ? (int) $request->input('id_proveedor_minero') : null,
             'tipo_ingreso' => $request->input('tipo_ingreso', 'Recepción de Mineral'),
-            'segunda_placa' => $request->input('segunda_placa'),
             'observacion' => $request->input('observacion'),
             'id_sucursal' => (int) $request->input('id_sucursal'),
             'guia_remitente' => $request->input('guia_remitente'),

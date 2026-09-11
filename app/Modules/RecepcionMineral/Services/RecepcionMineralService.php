@@ -126,8 +126,8 @@ class RecepcionMineralService
                 }
                 break;
 
-            case 'segunda_placa':
-                $recepcion->segunda_placa = $value;
+            case 'id_vehiculo_carreta':
+                $recepcion->id_vehiculo_carreta = $value ? (int) $value : null;
                 break;
 
             case 'conductor':

@@ -39,7 +39,7 @@ class RecepcionMineralController extends Controller
     public function validar_campo(Request $request, int $id): JsonResponse
     {
         $request->validate([
-            'field' => 'required|string|in:condicion_ingreso,placa,empresa_transporte,tipo_vehiculo,segunda_placa,conductor,fecha_hora_ingreso',
+            'field' => 'required|string|in:condicion_ingreso,placa,empresa_transporte,tipo_vehiculo,id_vehiculo_carreta,conductor,fecha_hora_ingreso',
             'value' => 'nullable',
         ]);
 

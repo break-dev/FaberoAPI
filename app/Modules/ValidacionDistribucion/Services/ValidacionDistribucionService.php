@@ -86,7 +86,7 @@ class ValidacionDistribucionService
      *   peso_inicial?: float|null, fecha_hora_peso_inicial?: string|null,
      *   peso_final?: float|null, fecha_hora_peso_final?: string|null,
      *   peso_neto?: float|null,
-     *   recepcion?: array{id_vehiculo?: int|null, id_conductor?: int|null, id_sucursal?: int|null, fecha_hora_ingreso?: string|null, segunda_placa?: string|null},
+     *   recepcion?: array{id_vehiculo?: int|null, id_conductor?: int|null, id_sucursal?: int|null, fecha_hora_ingreso?: string|null, id_vehiculo_carreta?: int|null},
      *   id_empleado_registro?: int|null
      * }  $data
      */
@@ -293,17 +293,17 @@ class ValidacionDistribucionService
             $idSucursal = ! empty($recepcionInput['id_sucursal'])
                 ? (int) $recepcionInput['id_sucursal']
                 : $idSucursalPadre;
-            $segundaPlaca = $recepcionInput['segunda_placa'] ?? null;
+            $idVehiculoCarreta = ! empty($recepcionInput['id_vehiculo_carreta']) ? (int) $recepcionInput['id_vehiculo_carreta'] : null;
         }
 
         return RecepcionUnidad::create([
             'id_empleado_recepcion' => $idEmpleadoRegistro,
             'id_vehiculo' => $idVehiculo,
+            'id_vehiculo_carreta' => $idVehiculoCarreta,
             'id_empresa_transporte' => null,
             'id_tipo_vehiculo' => null,
             'id_conductor' => $idConductor,
             'tipo_ingreso' => 'Recepción de Mineral',
-            'segunda_placa' => $segundaPlaca,
             'fecha_hora_ingreso' => $fechaIngreso,
             'fecha_hora_salida' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +2 hours')),
             'fecha_hora_inicio_pesaje' => date('Y-m-d H:i:s', strtotime($fechaIngreso.' +30 minutes')),

@@ -269,8 +269,43 @@ class ProgramacionDespachosData
             }
         }
 
+        // Guia Segundo Tramo: lookup en lote por id_distribucion. Solo activas
+        // (las anuladas/elimidadas NO aparecen en la respuesta para no
+        // romper el flujo del frontend). Una distribución puede tener a lo
+        // sumo una guía activa gracias al CHECK del Service al crear.
+        $guiasSegundoTramoPorDist = [];
+        if (! empty($distIds)) {
+            $placeholdersGuias = implode(',', array_fill(0, count($distIds), '?'));
+            $guiasRows = DB::select(
+                "SELECT gst.*, CONCAT(emp.nombre, ' ', emp.apellido) AS empleado_registro_nombre
+                 FROM guia_segundo_tramo gst
+                 LEFT JOIN empleado emp ON emp.id = gst.id_empleado_reistro
+                 WHERE gst.id_ditribucion IN ($placeholdersGuias)
+                   AND gst.estado <> 'Eliminado'
+                 ORDER BY gst.created_at DESC",
+                $distIds,
+            );
+            foreach ($guiasRows as $g) {
+                $idDist = (int) $g->id_ditribucion;
+                // Si una distribución tuviera >1 activa (no debería pasar), gana la más reciente.
+                if (isset($guiasSegundoTramoPorDist[$idDist])) {
+                    continue;
+                }
+                $g->id = (int) $g->id;
+                $g->id_ditribucion = (int) $g->id_ditribucion;
+                $g->id_empleado_reistro = $g->id_empleado_reistro !== null
+                    ? (int) $g->id_empleado_reistro
+                    : null;
+                $g->sin_guia_transportista = (bool) $g->sin_guia_transportista;
+                $g->documentos = isset($g->documentos) ? json_decode($g->documentos, true) ?? null : null;
+                $g->log_cambios = isset($g->log_cambios) ? json_decode($g->log_cambios, true) ?? [] : [];
+                $guiasSegundoTramoPorDist[$idDist] = (array) $g;
+            }
+        }
+
         foreach ($distribucionesRaw as $dist) {
             $dist->detalles = $distribucionesDetalle[$dist->id] ?? [];
+            $dist->guia_segundo_tramo = $guiasSegundoTramoPorDist[$dist->id] ?? null;
         }
 
         return [

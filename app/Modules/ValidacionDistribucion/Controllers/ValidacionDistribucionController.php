@@ -47,7 +47,7 @@ class ValidacionDistribucionController
             'recepcion.id_conductor' => 'nullable|integer',
             'recepcion.id_sucursal' => 'nullable|integer',
             'recepcion.fecha_hora_ingreso' => 'nullable|date',
-            'recepcion.segunda_placa' => 'nullable|string|max:15',
+            'recepcion.id_vehiculo_carreta' => 'nullable|integer|exists:vehiculo,id',
         ]);
 
         $authUser = $request->attributes->get('auth_user');

@@ -72,7 +72,7 @@ class ValorizacionCompraController extends Controller
             'anticipos.*.monto_retirado' => 'required|numeric|gt:0',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
-            'fecha_hora_valorizacion' => 'nullable|date',
+            'fecha_hora_valorizacion' => 'required|date',
             'monto_penalidad' => 'nullable|numeric|min:0',
             'monto_flete' => 'nullable|numeric|min:0',
         ]);
@@ -149,7 +149,7 @@ class ValorizacionCompraController extends Controller
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
             'evidencias_existentes' => 'nullable|string',
-            'fecha_hora_valorizacion' => 'nullable|date',
+            'fecha_hora_valorizacion' => 'required|date',
             'monto_penalidad' => 'nullable|numeric|min:0',
             'monto_flete' => 'nullable|numeric|min:0',
         ]);

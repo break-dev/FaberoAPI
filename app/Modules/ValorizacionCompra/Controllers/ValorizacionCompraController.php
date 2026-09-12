@@ -60,6 +60,7 @@ class ValorizacionCompraController extends Controller
             'detalles.*.id_lote_guia' => 'required|integer|exists:lote_guia,id',
             'detalles.*.elemento_quimico' => 'required|string|in:Oro,Plata',
             'detalles.*.id_condicion_comercial' => 'nullable|integer',
+            'detalles.*.id_valor_elemento_quimico' => 'nullable|integer',
             'detalles.*.inter' => 'required|numeric|min:0',
             'detalles.*.des_inter' => 'required|numeric|min:0',
             'detalles.*.recuperacion' => 'required|numeric|min:0|max:100',
@@ -71,6 +72,9 @@ class ValorizacionCompraController extends Controller
             'anticipos.*.monto_retirado' => 'required|numeric|gt:0',
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
+            'fecha_hora_valorizacion' => 'nullable|date',
+            'monto_penalidad' => 'nullable|numeric|min:0',
+            'monto_flete' => 'nullable|numeric|min:0',
         ]);
 
         $authUser = $request->attributes->get('auth_user');
@@ -85,6 +89,9 @@ class ValorizacionCompraController extends Controller
             'tipo_pago' => $request->input('tipo_pago'),
             'detalles' => $request->input('detalles'),
             'anticipos' => $request->input('anticipos', []),
+            'fecha_hora_valorizacion' => $request->input('fecha_hora_valorizacion') ?: null,
+            'monto_penalidad' => $request->input('monto_penalidad') !== null ? (float) $request->input('monto_penalidad') : 0,
+            'monto_flete' => $request->input('monto_flete') !== null ? (float) $request->input('monto_flete') : 0,
         ];
 
         $archivos = [];
@@ -129,6 +136,7 @@ class ValorizacionCompraController extends Controller
             'detalles.*.id_lote_guia' => 'required|integer|exists:lote_guia,id',
             'detalles.*.elemento_quimico' => 'required|string|in:Oro,Plata',
             'detalles.*.id_condicion_comercial' => 'nullable|integer',
+            'detalles.*.id_valor_elemento_quimico' => 'nullable|integer',
             'detalles.*.inter' => 'required|numeric|min:0',
             'detalles.*.des_inter' => 'required|numeric|min:0',
             'detalles.*.recuperacion' => 'required|numeric|min:0|max:100',
@@ -141,6 +149,9 @@ class ValorizacionCompraController extends Controller
             'evidencias' => 'nullable|array',
             'evidencias.*' => 'file',
             'evidencias_existentes' => 'nullable|string',
+            'fecha_hora_valorizacion' => 'nullable|date',
+            'monto_penalidad' => 'nullable|numeric|min:0',
+            'monto_flete' => 'nullable|numeric|min:0',
         ]);
 
         $authUser = $request->attributes->get('auth_user');
@@ -155,6 +166,9 @@ class ValorizacionCompraController extends Controller
             'detalles' => $request->input('detalles'),
             'anticipos' => $request->input('anticipos', []),
             'evidencias_existentes' => $request->input('evidencias_existentes'),
+            'fecha_hora_valorizacion' => $request->input('fecha_hora_valorizacion') ?: null,
+            'monto_penalidad' => $request->input('monto_penalidad') !== null ? (float) $request->input('monto_penalidad') : 0,
+            'monto_flete' => $request->input('monto_flete') !== null ? (float) $request->input('monto_flete') : 0,
         ];
 
         $archivos = [];

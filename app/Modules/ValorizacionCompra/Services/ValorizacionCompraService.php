@@ -87,6 +87,9 @@ class ValorizacionCompraService
                 'evidencias' => ! empty($evidenciasGuardadas) ? json_encode(array_values($evidenciasGuardadas)) : null,
                 'log_cambios' => [],
                 'fecha_hora_aprobacion' => null,
+                'fecha_hora_valorizacion' => $data['fecha_hora_valorizacion'] ?? null,
+                'monto_penalidad' => $data['monto_penalidad'] ?? 0,
+                'monto_flete' => $data['monto_flete'] ?? 0,
                 'created_at' => now(),
                 'estado' => EstadoValorizacionCompra::Pendiente->value,
             ]);
@@ -124,6 +127,7 @@ class ValorizacionCompraService
                     'id_valorizacion_compra' => $valorizacion->id,
                     'id_lote_guia' => $det['id_lote_guia'],
                     'id_condicion_comercial' => $det['id_condicion_comercial'] ?? null,
+                    'id_valor_elemento_quimico' => isset($det['id_valor_elemento_quimico']) ? (int) $det['id_valor_elemento_quimico'] : null,
                     'elemento_quimico' => $elementoEnum->value,
                     'inter' => $inter,
                     'des_inter' => $desInter,
@@ -344,6 +348,9 @@ class ValorizacionCompraService
                 'evidencias' => ! empty($vNueEvidencias) ? array_values($vNueEvidencias) : null,
                 'log_cambios' => $logCambios,
                 'total_subtotal' => $newTotalSubtotal,
+                'fecha_hora_valorizacion' => $data['fecha_hora_valorizacion'] ?? null,
+                'monto_penalidad' => $data['monto_penalidad'] ?? 0,
+                'monto_flete' => $data['monto_flete'] ?? 0,
             ]);
 
             // Re-sincronizar detalles
@@ -489,6 +496,7 @@ class ValorizacionCompraService
                     'id_valorizacion_compra' => $valorizacion->id,
                     'id_lote_guia' => $det['id_lote_guia'],
                     'id_condicion_comercial' => $det['id_condicion_comercial'] ?? null,
+                    'id_valor_elemento_quimico' => isset($det['id_valor_elemento_quimico']) ? (int) $det['id_valor_elemento_quimico'] : null,
                     'elemento_quimico' => $elementoEnum->value,
                     'inter' => $inter,
                     'des_inter' => $desInter,
